@@ -1,0 +1,58 @@
+name: 'Deploy Environment'
+description: 'Deploy a StackGuardian Service Virtualization environment'
+author: 'StackGuardian'
+branding:
+  icon: 'aperture'
+  color: 'blue'
+inputs:
+  ctpUrl:
+    required: true
+    description: 'CTP URL'
+  ctpUsername:
+    required: true
+    description: 'CTP Username'
+  ctpPassword:
+    required: true
+    description: 'CTP Password'
+  system:
+    required: true
+    description: 'Name of the system'
+  environment:
+    required: true
+    description: 'Name of the environment'
+  instance:
+    required: true
+    description: 'Name of the environment instance to provision'
+  abortOnFailure:
+    required: false
+    description: 'Fail action and abort on provisioning failure'
+  copyToVirtualize:
+    required: false
+    description: 'Virtual assets in the environment will be replicated on another server'
+  virtServerName:
+    required: false
+    description: 'The environment assets will be copied to a Virtualize server matching this name'
+  newEnvironmentName:
+    required: false
+    description: 'The name for the replicated environment can be used to later destroy the environment'
+  duplicateDataRepo:
+    required: false
+    description: 'Duplicate associated data repositories before provisioning'
+  duplicateType:
+    required: false
+    description: 'Where to duplicate data repository'
+  repoHost:
+    required: false
+    description: 'The host of the data repository server'
+  repoPort:
+    required: false
+    description: 'The port of the data repository server'
+  repoUsername:
+    required: false
+    description: 'The username of the data repository server'
+  repoPassword:
+    required: false
+    description: 'The password of the data repository server'
+runs:
+  using: 'node12'
+  main: 'dist/index.js'
