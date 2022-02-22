@@ -13,7 +13,7 @@ let auth: service.Authorization = {api_key: api}
 var sgService = new service.WebService(endpoint, context, auth)
 
 export async function run() {
-  sgService.WorkflowRun()
+  await sgService.WorkflowRun();
 }
 
 run()

@@ -46,10 +46,16 @@ export class WebService {
     }
 
     try {
-      const res = await axios.post(this.baseURL.href, {}, config)
-      console.log(res)
+      const res = await axios.post(this.baseURL.href, {}, config);
+      return {
+        response: res.data,
+        error: ""
+      };
     } catch (error) {
-      console.log(error)
+      return {
+        response: null,
+        error: error
+      };
     }
   }
 }
