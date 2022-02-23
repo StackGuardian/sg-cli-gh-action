@@ -16,11 +16,17 @@ export async function run() {
 
   var sgService = new service.WebService(endpoint, context, auth)
 
-  await sgService.WorkflowRun();
-  core.setOutput('msg', 'Workflow Scheduled');
+  core.info(`apiKey: ', ${apiKey}, ', orgId:', ${orgId}, ' workflowGroupId:', ${workflowGroupId}, ' workflowId:', ${workflowId}`)
+
+  core.info('Triggering Workflow Run')
+
+  const {response, error} = await sgService.WorkflowRun();
+  core.setOutput('msg', 'Workflow Scheduled')
+  core.info(`response: ${response}`)
+  core.info(`error: ${error}`)
+
+  core.info('Workflow Run Triggered')
   
 }
-
-console.log('Triggering Workflow Run')
 
 run()

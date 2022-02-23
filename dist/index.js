@@ -49,12 +49,16 @@ function run() {
         const context = '';
         let auth = { api_key: apiKey };
         var sgService = new service.WebService(endpoint, context, auth);
-        yield sgService.WorkflowRun();
+        core.info(`apiKey: ', ${apiKey}, ', orgId:', ${orgId}, ' workflowGroupId:', ${workflowGroupId}, ' workflowId:', ${workflowId}`);
+        core.info('Triggering Workflow Run');
+        const { response, error } = yield sgService.WorkflowRun();
         core.setOutput('msg', 'Workflow Scheduled');
+        core.info(`response: ${response}`);
+        core.info(`error: ${error}`);
+        core.info('Workflow Run Triggered');
     });
 }
 exports.run = run;
-console.log('Triggering Workflow Run');
 run();
 
 
