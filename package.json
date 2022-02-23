@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": false,
   "description": "StackGuardian workflow run action",
-  "main": "src/main.ts",
+  "main": "lib/main.js",
   "scripts": {
     "build": "tsc",
     "format": "prettier --write **/*.ts",

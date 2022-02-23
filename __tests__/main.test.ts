@@ -1,11 +1,4 @@
-import * as process from 'process'
-import * as cp from 'child_process'
-import * as path from 'path'
-import * as core from '@actions/core';
-import * as main from '../src/main';
 import * as service from '../src/service';
-import q from 'q';
-import http from 'http';
 import axios from 'axios';
 
 
@@ -42,10 +35,10 @@ test("Sanity check", () => {
 
 describe("Test a single deployment", () => {
   // variables
-  let api: string = 'sgu_Efza8ZO5NLe8kT1PfU7KK';
+  let apiKey: string = 'sgu_Efza8ZO5NLe8kT1PfU7KK';
   let endpoint: string = 'https://testapi.qa.stackguardian.io/api/v1/orgs/policies/wfgrps/testing/wfs/s3/wfruns/';
   const context = '';
-  let auth: service.Authorization = {api_key: api};
+  let auth: service.Authorization = {api_key: apiKey};
 
   // defined the service
   var sgService = new service.WebService(endpoint, context, auth);
@@ -59,7 +52,7 @@ describe("Test a single deployment", () => {
     mockedAxios.post.mockResolvedValue(mockResponse);
     
     const {response, error} = await sgService.WorkflowRun();
-
+    console.log("response: ", response)
     // expect(axios.post).toHaveBeenCalledWith(endpoint);
     expect(response.msg).toEqual(mockResponse.data.msg);
     expect(error).toEqual("");

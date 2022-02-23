@@ -1,8 +1,8 @@
-import * as core from '@actions/core'
-import http = require('http')
-import https = require('https')
-import url = require('url')
 import axios from 'axios'
+// import * as core from '@actions/core'
+import http from 'http'
+import https from 'https'
+import url from 'url'
 
 export interface Authorization {
   api_key: string
@@ -42,15 +42,16 @@ export class WebService {
 
     try {
       const res = await axios.post(this.baseURL.href, {}, config);
+
       return {
         response: res.data,
-        error: ""
-      };
+        error: ''
+      }
     } catch (error) {
       return {
         response: null,
         error: error
-      };
+      }
     }
   }
 }
