@@ -41,21 +41,29 @@ const service = __importStar(__nccwpck_require__(6511));
 function run() {
     return __awaiter(this, void 0, void 0, function* () {
         // TODO: Get from action inputs. apiKey will be a secret.
-        let apiKey = core.getInput('apiKey', { required: true });
-        let orgId = core.getInput('orgId', { required: true });
-        let workflowGroupId = core.getInput('workflowGroupId', { required: true });
-        let workflowId = core.getInput('workflowId', { required: true });
-        let endpoint = `https://testapi.qa.stackguardian.io/api/v1/orgs/${orgId}/wfgrps/${workflowGroupId}/wfs/${workflowId}/wfruns/`;
+        const apiKey = core.getInput('apiKey', {
+            required: true
+        });
+        const orgId = core.getInput('orgId', {
+            required: true
+        });
+        const workflowGroupId = core.getInput('workflowGroupId', {
+            required: true
+        });
+        const workflowId = core.getInput('workflowId', {
+            required: true
+        });
+        const endpoint = `https://testapi.qa.stackguardian.io/api/v1/orgs/${orgId}/wfgrps/${workflowGroupId}/wfs/${workflowId}/wfruns/`;
         const context = '';
-        let auth = { api_key: apiKey };
+        const auth = { api_key: apiKey };
         var sgService = new service.WebService(endpoint, context, auth);
-        core.info(`apiKey: ', ${apiKey}, ', orgId:', ${orgId}, ' workflowGroupId:', ${workflowGroupId}, ' workflowId:', ${workflowId}`);
+        core.info(`endpoint: ${endpoint}, apiKey: ${apiKey}, orgId: ${orgId}, workflowGroupId: ${workflowGroupId}, workflowId: ${workflowId}`);
         core.info('Triggering Workflow Run');
         const { response, error } = yield sgService.WorkflowRun();
-        core.setOutput('msg', 'Workflow Scheduled');
+        core.info('Workflow Scheduled');
         core.info(`response: ${response}`);
         core.info(`error: ${error}`);
-        core.info('Workflow Run Triggered');
+        core.info('Finished');
     });
 }
 exports.run = run;
@@ -69,6 +77,25 @@ run();
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -84,7 +111,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.WebService = void 0;
 const axios_1 = __importDefault(__nccwpck_require__(6545));
-// import * as core from '@actions/core'
+const core = __importStar(__nccwpck_require__(2186));
 const http_1 = __importDefault(__nccwpck_require__(3685));
 const https_1 = __importDefault(__nccwpck_require__(5687));
 const url_1 = __importDefault(__nccwpck_require__(7310));
@@ -100,6 +127,7 @@ class WebService {
                 Authorization: `apikey ${this.authorization.api_key}`
             };
             try {
+                core.info(`config: ${config}`);
                 const res = yield axios_1.default.post(this.baseURL.href, {}, config);
                 return {
                     response: res.data,
