@@ -1,5 +1,5 @@
 import axios from 'axios'
-// import * as core from '@actions/core'
+import * as core from '@actions/core'
 import http from 'http'
 import https from 'https'
 import url from 'url'
@@ -41,6 +41,7 @@ export class WebService {
     }
 
     try {
+      core.info(`config: ${config}`)
       const res = await axios.post(this.baseURL.href, {}, config);
 
       return {
