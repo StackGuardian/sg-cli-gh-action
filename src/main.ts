@@ -1,10 +1,25 @@
-import * as core from '@actions/core';
-import * as service from './service';
+import * as core from '@actions/core'
+import * as service from './service'
 
-var sgService = new service.WebService();
-  
+// TODO: Get from action inputs. apiKey will be a secret.
+let apiKey: string = core.getInput('apiKey', { required: true });
+let orgId: string = core.getInput('orgId', { required: true });
+let workflowGroupId: string = core.getInput('workflowGroupId', { required: true });
+let workflowId: string = core.getInput('workflowId', { required: true });
+
+let endpoint: string = `https://testapi.qa.stackguardian.io/api/v1/orgs/${orgId}/wfgrps/${workflowGroupId}/wfs/${workflowId}/wfruns/`
+
+const context = ''
+
+let auth: service.Authorization = {api_key: apiKey}
+
+var sgService = new service.WebService(endpoint, context, auth)
+
 export async function run() {
-    // TODO: call workflow run api
+  await sgService.WorkflowRun();
+  core.setOutput('msg', 'Workflow Scheduled');
 }
 
-run();
+console.log('Triggering Workflow Run')
+
+run()
