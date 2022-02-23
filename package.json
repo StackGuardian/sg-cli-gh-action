@@ -1,9 +1,9 @@
 {
   "name": "workflow-run-action",
-  "version": "1.0.2",
-  "private": true,
-  "description": "Deploy Environment action",
-  "main": "lib/main.js",
+  "version": "1.0.0",
+  "private": false,
+  "description": "StackGuardian workflow run action",
+  "main": "src/main.ts",
   "scripts": {
     "build": "tsc",
     "format": "prettier --write **/*.ts",
@@ -20,7 +20,9 @@
   "keywords": [
     "actions",
     "node",
-    "setup"
+    "setup",
+    "stackguardian",
+    "workflow"
   ],
   "author": "",
   "license": "MIT",
