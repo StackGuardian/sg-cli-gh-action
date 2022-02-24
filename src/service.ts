@@ -41,7 +41,6 @@ export class WebService {
     }
 
     try {
-      core.info(`config: ${config}`)
       const res = await axios.post(this.baseURL.href, {}, config)
 
       return {

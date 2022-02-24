@@ -69,9 +69,9 @@ function run() {
         }
         // core.info('Workflow Scheduled')
         // Prining res msg
-        core.info(`data: ${data}`);
+        core.info(`msg : ${msg}`);
         //Testing Debug
-        core.debug(`data: ${JSON.stringify(data)}`);
+        core.debug(`data: ${JSON.stringify(data, null, "\t")}`);
         core.info('Finished');
     });
 }
@@ -86,25 +86,6 @@ run();
 
 "use strict";
 
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -120,7 +101,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.WebService = void 0;
 const axios_1 = __importDefault(__nccwpck_require__(6545));
-const core = __importStar(__nccwpck_require__(2186));
 const http_1 = __importDefault(__nccwpck_require__(3685));
 const https_1 = __importDefault(__nccwpck_require__(5687));
 const url_1 = __importDefault(__nccwpck_require__(7310));
@@ -136,7 +116,6 @@ class WebService {
                 Authorization: `apikey ${this.authorization.api_key}`
             };
             try {
-                core.info(`config: ${config}`);
                 const res = yield axios_1.default.post(this.baseURL.href, {}, config);
                 return {
                     data: res.data.data,
