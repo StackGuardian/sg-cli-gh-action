@@ -40,44 +40,44 @@ const core = __importStar(__nccwpck_require__(2186));
 const service = __importStar(__nccwpck_require__(6511));
 function run() {
     return __awaiter(this, void 0, void 0, function* () {
-        // TODO: Get from action inputs. apiKey will be a secret.
-        const apiKey = core.getInput('apiKey', {
-            required: true
-        });
-        const orgId = core.getInput('orgId', {
-            required: true
-        });
-        const workflowGroupId = core.getInput('workflowGroupId', {
-            required: true
-        });
-        const workflowId = core.getInput('workflowId', {
-            required: true
-        });
-        if (!apiKey || !orgId || !workflowGroupId || !workflowId) {
-            // setDailed sets the actions status to failed with status code 1
-            core.setFailed('Required Input not provided correctly');
+        try {
+            const apiKey = core.getInput('apiKey', {
+                required: true
+            });
+            const orgId = core.getInput('orgId', {
+                required: true
+            });
+            const workflowGroupId = core.getInput('workflowGroupId', {
+                required: true
+            });
+            const workflowId = core.getInput('workflowId', {
+                required: true
+            });
+            const endpoint = `https://testapi.qa.stackguardian.io/api/v1/orgs/${orgId}/wfgrps/${workflowGroupId}/wfs/${workflowId}/wfruns/`;
+            const context = '';
+            const auth = { api_key: apiKey };
+            var sgService = new service.WebService(endpoint, context, auth);
+            core.info(`endpoint: ${endpoint}, apiKey: ${apiKey}, orgId: ${orgId}, workflowGroupId: ${workflowGroupId}, workflowId: ${workflowId}`);
+            core.info('Triggering Workflow Run');
+            const { data, msg, error } = yield sgService.WorkflowRun();
+            if (error) {
+                core.setFailed(`Action failed with error ${error}`);
+            }
+            // core.info('Workflow Scheduled')
+            //Testing Debug
+            if (data) {
+                core.debug(`data: ${JSON.stringify(data, null, 1)}`);
+            }
+            else {
+                core.info(`msg : No Data`);
+            }
+            // Prining res msg
+            core.info(`msg : ${msg}`);
+            core.info('Finished');
         }
-        const endpoint = `https://testapi.qa.stackguardian.io/api/v1/orgs/${orgId}/wfgrps/${workflowGroupId}/wfs/${workflowId}/wfruns/`;
-        const context = '';
-        const auth = { api_key: apiKey };
-        var sgService = new service.WebService(endpoint, context, auth);
-        core.info(`endpoint: ${endpoint}, apiKey: ${apiKey}, orgId: ${orgId}, workflowGroupId: ${workflowGroupId}, workflowId: ${workflowId}`);
-        core.info('Triggering Workflow Run');
-        const { data, msg, error } = yield sgService.WorkflowRun();
-        if (error) {
-            core.setFailed(`Action failed with error ${error}`);
+        catch (error) {
+            core.setFailed(`Action failed with error ${error.message}`);
         }
-        // core.info('Workflow Scheduled')
-        //Testing Debug
-        if (data) {
-            core.debug(`data: ${JSON.stringify(data, null, 1)}`);
-        }
-        else {
-            core.info(`msg : No Data`);
-        }
-        // Prining res msg
-        core.info(`msg : ${msg}`);
-        core.info('Finished');
     });
 }
 exports.run = run;
