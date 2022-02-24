@@ -53,16 +53,26 @@ function run() {
         const workflowId = core.getInput('workflowId', {
             required: true
         });
+        if (!apiKey || !orgId || !workflowGroupId || !workflowId) {
+            // setDailed sets the actions status to failed with status code 1
+            core.setFailed('Required Input not provided correctly');
+        }
         const endpoint = `https://testapi.qa.stackguardian.io/api/v1/orgs/${orgId}/wfgrps/${workflowGroupId}/wfs/${workflowId}/wfruns/`;
         const context = '';
         const auth = { api_key: apiKey };
         var sgService = new service.WebService(endpoint, context, auth);
         core.info(`endpoint: ${endpoint}, apiKey: ${apiKey}, orgId: ${orgId}, workflowGroupId: ${workflowGroupId}, workflowId: ${workflowId}`);
         core.info('Triggering Workflow Run');
-        const { response, error } = yield sgService.WorkflowRun();
-        core.info('Workflow Scheduled');
-        core.info(`response: ${response}`);
-        core.info(`error: ${error}`);
+        const { data, msg, error } = yield sgService.WorkflowRun();
+        if (error) {
+            core.setFailed(`Action failed with error ${error}`);
+        }
+        // core.info('Workflow Scheduled')
+        core.info(`data: ${data}`);
+        core.info(`msg: ${msg}`);
+        //Testing Debug
+        core.debug(`data: ${data}`);
+        core.debug(`msg: ${msg}`);
         core.info('Finished');
     });
 }
@@ -130,14 +140,16 @@ class WebService {
                 core.info(`config: ${config}`);
                 const res = yield axios_1.default.post(this.baseURL.href, {}, config);
                 return {
-                    response: res.data,
-                    error: ''
+                    data: res.data.data,
+                    msg: res.data.msg,
+                    error: null
                 };
             }
             catch (error) {
                 return {
-                    response: null,
-                    error: error
+                    data: null,
+                    msg: null,
+                    error: this.getErrorMessage(error)
                 };
             }
         });
@@ -151,6 +163,29 @@ class WebService {
         this.authorization = authorization;
         this.protocol = this.baseURL.protocol === 'https:' ? https_1.default : http_1.default;
         this.protocolLabel = this.baseURL.protocol || 'http:';
+    }
+    getErrorMessage(error) {
+        let { status, data } = (error === null || error === void 0 ? void 0 : error.response) || {};
+        let msg = '';
+        console.log(`status => ${status}`);
+        if (status === 401) {
+            msg = 'Unauthorized';
+        }
+        else if (status === 403) {
+            msg = 'Unauthorized';
+        }
+        else if (status === 404) {
+            msg = 'Not Found';
+        }
+        else if (status === 500) {
+            msg = 'Internal Server Error';
+        }
+        if (data === null || data === void 0 ? void 0 : data.msg) {
+            msg = data === null || data === void 0 ? void 0 : data.msg;
+        }
+        if (!msg)
+            msg = 'Connection Error';
+        return msg;
     }
 }
 exports.WebService = WebService;

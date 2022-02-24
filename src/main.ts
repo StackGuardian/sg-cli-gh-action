@@ -16,6 +16,11 @@ export async function run() {
     required: true
   })
 
+  if (!apiKey || !orgId || !workflowGroupId || !workflowId) {
+    // setDailed sets the actions status to failed with status code 1
+    core.setFailed('Required Input not provided correctly')
+  }
+
   const endpoint = `https://testapi.qa.stackguardian.io/api/v1/orgs/${orgId}/wfgrps/${workflowGroupId}/wfs/${workflowId}/wfruns/`
 
   const context = ''
@@ -24,14 +29,25 @@ export async function run() {
 
   var sgService = new service.WebService(endpoint, context, auth)
 
-  core.info(`endpoint: ${endpoint}, apiKey: ${apiKey}, orgId: ${orgId}, workflowGroupId: ${workflowGroupId}, workflowId: ${workflowId}`)
+  core.info(
+    `endpoint: ${endpoint}, apiKey: ${apiKey}, orgId: ${orgId}, workflowGroupId: ${workflowGroupId}, workflowId: ${workflowId}`
+  )
 
   core.info('Triggering Workflow Run')
 
-  const {response, error} = await sgService.WorkflowRun()
-  core.info('Workflow Scheduled')
-  core.info(`response: ${response}`)
-  core.info(`error: ${error}`)
+  const {data, msg, error} = await sgService.WorkflowRun()
+  if (error) {
+    core.setFailed(`Action failed with error ${error}`)
+  }
+
+  // core.info('Workflow Scheduled')
+  
+  core.info(`data: ${data}`)
+  core.info(`msg: ${msg}`)
+
+  //Testing Debug
+  core.debug(`data: ${data}`)
+  core.debug(`msg: ${msg}`)
 
   core.info('Finished')
 }

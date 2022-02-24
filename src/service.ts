@@ -42,17 +42,39 @@ export class WebService {
 
     try {
       core.info(`config: ${config}`)
-      const res = await axios.post(this.baseURL.href, {}, config);
+      const res = await axios.post(this.baseURL.href, {}, config)
 
       return {
-        response: res.data,
-        error: ''
+        data: res.data.data,
+        msg: res.data.msg,
+        error: null
       }
     } catch (error) {
       return {
-        response: null,
-        error: error
+        data: null,
+        msg: null,
+        error: this.getErrorMessage(error)
       }
     }
+  }
+
+  getErrorMessage(error) {
+    let {status, data} = error?.response || {}
+    let msg = ''
+    console.log(`status => ${status}`)
+    if (status === 401) {
+      msg = 'Unauthorized'
+    } else if (status === 403) {
+      msg = 'Unauthorized'
+    } else if (status === 404) {
+      msg = 'Not Found'
+    } else if (status === 500) {
+      msg = 'Internal Server Error'
+    }
+    if (data?.msg) {
+      msg = data?.msg
+    }
+    if (!msg) msg = 'Connection Error'
+    return msg
   }
 }
