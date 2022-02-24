@@ -42,11 +42,15 @@ export async function run() {
 
   // core.info('Workflow Scheduled')
 
+  //Testing Debug
+  if (data) {
+    core.debug(`data: ${JSON.stringify(data, null, 1)}`)
+  } else {
+    core.info(`msg : No Data`)
+  }
+
   // Prining res msg
   core.info(`msg : ${msg}`)
-
-  //Testing Debug
-  core.debug(`data: ${JSON.stringify(data, null, 1)}`)
 
   core.info('Finished')
 }
