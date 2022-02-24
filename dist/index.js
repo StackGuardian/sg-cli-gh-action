@@ -148,9 +148,8 @@ class WebService {
         this.protocolLabel = this.baseURL.protocol || 'http:';
     }
     getErrorMessage(error) {
-        let { status, data } = (error === null || error === void 0 ? void 0 : error.response) || {};
+        let { status } = (error === null || error === void 0 ? void 0 : error.response) || {};
         let msg = '';
-        console.log(`status => ${status}`);
         if (status === 401) {
             msg = 'Unauthorized';
         }
@@ -162,9 +161,6 @@ class WebService {
         }
         else if (status === 500) {
             msg = 'Internal Server Error';
-        }
-        if (data === null || data === void 0 ? void 0 : data.msg) {
-            msg = data === null || data === void 0 ? void 0 : data.msg;
         }
         if (!msg)
             msg = 'Connection Error';

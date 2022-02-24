@@ -58,9 +58,8 @@ export class WebService {
   }
 
   getErrorMessage(error) {
-    let {status, data} = error?.response || {}
+    let {status} = error?.response || {}
     let msg = ''
-    console.log(`status => ${status}`)
     if (status === 401) {
       msg = 'Unauthorized'
     } else if (status === 403) {
@@ -70,9 +69,7 @@ export class WebService {
     } else if (status === 500) {
       msg = 'Internal Server Error'
     }
-    if (data?.msg) {
-      msg = data?.msg
-    }
+
     if (!msg) msg = 'Connection Error'
     return msg
   }
