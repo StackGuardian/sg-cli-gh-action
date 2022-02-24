@@ -71,7 +71,7 @@ function run() {
         // Prining res msg
         core.info(`msg : ${msg}`);
         //Testing Debug
-        core.debug(`data: ${JSON.stringify(data, null, "\t")}`);
+        core.debug(`data: ${JSON.stringify(data, null, 0)}`);
         core.info('Finished');
     });
 }
