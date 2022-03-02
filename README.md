@@ -1,6 +1,13 @@
-<p align="center">
-  <a href="https://github.com/stackguardian/workflow-run-action/actions"><img alt="typescript-action status" src="https://github.com/actions/typescript-action/workflows/build-test/badge.svg"></a>
-</p>
+# workflow-run-action
+
+![build-test](https://github.com/StackGuardian/workflow-run-action/actions/workflows/test.yml/badge.svg)
+<!-- ![workflow-run-action Test](https://github.com/<OWNER>/<REPOSITORY>/actions/workflows/<WORKFLOW_FILE>/badge.svg) -->
+<br><br>
+[![tag badge](https://img.shields.io/github/v/tag/redhat-actions/oc-installer)](https://github.com/StackGuardian/workflow-run-action/tags)
+[![license badge](https://img.shields.io/github/license/StackGuardian/workflow-run-action)](./LICENSE)
+[![size badge](https://img.shields.io/github/size/StackGuardian/workflow-run-action/dist/index.js)](./dist)
+
+`workflow-run-action` runs a executes a StackGuardian Workflow Run on your Github Action runner
 
 # Run a workflow run
 
@@ -49,6 +56,3 @@ $ npm run build && npm run package
 $ npm test
 
  PASS  ./index.test.js
-
-...
-```
