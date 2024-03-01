@@ -15,5 +15,5 @@ RUN wget -q "$(wget -qO- "https://api.github.com/repos/stackguardian/sg-cli/rele
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x entrypoint.sh
 # Code file to execute when the docker container starts up (`entrypoint.sh`)
-CMD ["/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
 
