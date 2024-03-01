@@ -1,2 +1,20 @@
-
-
+on: [push]
+jobs:
+  StackGuardian_Client:
+    runs-on: ubuntu-latest
+    name: StackGuardian Github Action
+    steps:
+      # To use this repository's private action,
+      # you must check out the repository
+      - name: StackGuardian/workflow-run-action
+        uses: actions/checkout@v4
+      - name: StackGuardian/workflow-run-action
+        uses: ./ # Uses an action in the root directory
+        id: StackGuardian-CLI
+        with:
+          sg-cmd: "workflow help"
+        env:
+         SG_API_TOKEN: sgu_1BqwrRmIA1cXumJvsdM2q
+      # # Use the output from the `hello` step
+      # - name: Get the output time
+      #   run: echo "The time was ${{ steps.hello.outputs.time }}"

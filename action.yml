@@ -12,7 +12,6 @@ runs:
   using: 'docker'
   image: 'Dockerfile'
   args:
-    - sg-cli
     - ${{ inputs.sg-cmd }}
   env:
     SG_API_TOKEN: ${{ secrets.SG_API_TOKEN }}
