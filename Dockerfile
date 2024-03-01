@@ -1,9 +1,8 @@
 # Container image that runs your code
 FROM alpine:3.10
 
-RUN apk add --no-cache bash
 # Install necessary tools
-RUN apk --no-cache add wget jq curl
+RUN apk --no-cache add bash wget jq curl
 
 # Download and extract StackGuardian CLI release
 RUN wget -q "$(wget -qO- "https://api.github.com/repos/stackguardian/sg-cli/releases/latest" | jq -r '.tarball_url')" -O sg-cli.tar.gz \
