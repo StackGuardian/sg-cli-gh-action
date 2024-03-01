@@ -5,18 +5,15 @@ branding:
   icon: 'aperture'
   color: 'blue'
 inputs:
-  orgId:
+  sg-cmd:
+    description: 'sg-cli operation'
     required: true
-    description: 'StackGuardian Organization Id'
-  workflowGroupId:
-    required: true
-    description: 'Workflow Group Id'
-  workflowId:
-    required: true
-    description: 'Workflow Id'
-  apiKey:
-    required: true
-    description: 'StackGuardian API Key'
 runs:
-  using: 'node12'
-  main: 'dist/index.js'
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - sg-cli
+    - ${{ inputs.sg-cmd }}
+  env:
+    SG_API_TOKEN: sgu_1BqwrRmIA1cXumJvsdM2q
+
