@@ -15,5 +15,5 @@ runs:
     - sg-cli
     - ${{ inputs.sg-cmd }}
   env:
-    SG_API_TOKEN: sgu_1BqwrRmIA1cXumJvsdM2q
+    SG_API_TOKEN: ${{ secrets.SG_API_TOKEN }}
 
