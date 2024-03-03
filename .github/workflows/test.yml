@@ -3,10 +3,12 @@ jobs:
   execute-sg-cli:
     runs-on: ubuntu-latest
     name: StackGuardian CLI Github Action
+    env:
+      SG_API_TOKEN: 'sgu_xyz'
     steps:
       - uses: actions/checkout@v2
       - name: StackGuardian/workflow-run-action
         uses: ./ # Uses an action in the root directory
         id: StackGuardian-CLI
         with:
-          operation: "workflow help"
+          operation: "--help"
