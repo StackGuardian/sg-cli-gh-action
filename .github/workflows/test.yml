@@ -1,6 +1,6 @@
 on: [push]
 jobs:
-  StackGuardian_Client:
+  execute-sg-cli:
     runs-on: ubuntu-latest
     name: StackGuardian Github Action
     steps:
