@@ -13,6 +13,7 @@ if [ $? -eq 0 ]; then
 else
     # If the command failed, print an error message
     echo "Error: Command execution failed!"
+    exit 1
 fi
 
 
