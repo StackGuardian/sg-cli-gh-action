@@ -1,12 +1,12 @@
-name: 'Workflow Run'
-description: 'Schedule a StackGuardian Workflow Run'
+name: 'StackGuardian CLI'
+description: 'Run sg-cli commands. Read more at https://github.com/StackGuardian/sg-cli/blob/main/README.md.'
 author: 'StackGuardian'
 branding:
-  icon: 'aperture'
+  icon: 'command'
   color: 'blue'
 inputs:
-  sg-cmd:
-    description: 'sg-cli operation'
+  sg-cli-operation:
+    description: 'sg-cli operation like "workflow create ..." or "stack create ..."'
     required: true
 runs:
   using: 'docker'
