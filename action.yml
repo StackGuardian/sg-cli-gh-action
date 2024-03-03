@@ -5,7 +5,7 @@ branding:
   icon: 'command'
   color: 'blue'
 inputs:
-  sg-cli-operation:
+  operation:
     description: 'sg-cli operation like "workflow create ..." or "stack create ..."'
     required: true
 runs:
