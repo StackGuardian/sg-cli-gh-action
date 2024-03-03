@@ -16,6 +16,8 @@ This action interacts with [sg-cli](https://github.com/StackGuardian/sg-cli/blob
 
 ## Example usage
 
+```yaml
 uses: stackguardian/workflow-run-action
 with:
   operation: 'workflow create --bulk --org demo-org --workflow-group demo-grp  -- payload.json'
+```
