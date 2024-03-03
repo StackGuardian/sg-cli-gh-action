@@ -8,4 +8,4 @@ jobs:
         uses: ./ # Uses an action in the root directory
         id: StackGuardian-CLI
         with:
-          sg-cmd: "workflow help"
+          operation: "workflow help"
