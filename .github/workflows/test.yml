@@ -2,8 +2,9 @@ on: [push]
 jobs:
   execute-sg-cli:
     runs-on: ubuntu-latest
-    name: StackGuardian Github Action
+    name: StackGuardian CLI Github Action
     steps:
+      - uses: actions/checkout@v2
       - name: StackGuardian/workflow-run-action
         uses: ./ # Uses an action in the root directory
         id: StackGuardian-CLI
