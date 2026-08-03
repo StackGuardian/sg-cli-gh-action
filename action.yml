@@ -74,9 +74,9 @@ inputs:
     description: "Override the StackGuardian terraform step template. Omit to use the platform's own default."
     required: false
   tirith-version:
-    description: "Version of py-tirith to install. Pinned so a green pipeline cannot turn red without anything in the repository changing."
+    description: "Git ref of py-tirith to install. TEMPORARY default: a branch, until StackGuardian/tirith is tagged 1.2.0. Set this back to a tag before release -- a moving ref means a green pipeline can turn red with nothing in the repository changing."
     required: false
-    default: "1.2.0"
+    default: "feat/gate-capable-engine"
   github-token:
     description: "Token used to post the comment and the check run. Never sent to StackGuardian."
     required: false
