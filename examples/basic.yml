@@ -1,0 +1,54 @@
+# Pattern A -- two added steps, no restructuring.
+#
+# Works because a failed step fails the job and subsequent steps do not run, so apply is gated
+# with no `needs:`, no job split, and no output plumbing. `tfplan` is still in the workspace, so
+# apply applies exactly the bytes that were checked.
+#
+# Two caveats:
+#   - A later step carrying `if: always()` or `if: success() || failure()` WILL still run, so
+#     insert the tirith step above any such step.
+#   - This shape gates but cannot pause. For a human approval gate, use your own environment
+#     protection rules or a separate approval job -- this action does not implement approvals.
+
+name: terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# NOTE: no `paths:` filter. A required check whose workflow never runs pins the PR at
+# "Expected -- waiting for status to be reported" forever. Filter inside a job with `if:` instead.
+
+permissions:
+  contents: read
+  pull-requests: write   # the sticky comment
+  checks: write          # the "Tirith Policy" check run
+  id-token: write        # your cloud auth, if you use OIDC
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - run: terraform init -input=false
+
+      - run: terraform plan -out=tfplan -input=false
+
+      # Added: render the plan as JSON for tirith.
+      - run: terraform show -json tfplan > plan.json
+
+      # Added: evaluate policies. Policies live in StackGuardian and are selected by their
+      # EnforcedOn scope -- nothing about them is configured here.
+      - uses: StackGuardian/sg-cli-gh-action@v2
+        with:
+          sg-api-key: ${{ secrets.SG_API_TOKEN }}   # must be an sgo_ (organization) token
+          sg-org: ${{ vars.SG_ORG }}
+          input-path: plan.json
+          fail-on-error: true                       # make a failing policy fail the job
+
+      - if: github.event_name == 'push'
+        run: terraform apply -auto-approve -input=false tfplan

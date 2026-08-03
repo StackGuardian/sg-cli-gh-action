@@ -1,0 +1,45 @@
+# One repo, several terraform stacks.
+#
+# The important detail is `comment-tag`: the sticky comment is found by a hidden marker that
+# includes that tag, so without a distinct value per stack every matrix leg would find and
+# overwrite the same comment and you would see only whichever finished last.
+#
+# Each leg creates its own StackGuardian workflow (via `workflow-id`) so the legs do not queue
+# behind each other -- runs on a single workflow serialize while one is PENDING/RUNNING.
+
+name: terraform-policy
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # one stack failing should not hide the others' results
+      matrix:
+        stack: [envs/dev, envs/staging, envs/prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - working-directory: ${{ matrix.stack }}
+        run: |
+          terraform init -input=false
+          terraform plan -out=tfplan -input=false
+          terraform show -json tfplan > plan.json
+
+      - uses: StackGuardian/sg-cli-gh-action@v2
+        with:
+          sg-api-key: ${{ secrets.SG_API_TOKEN }}
+          sg-org: ${{ vars.SG_ORG }}
+          input-path: ${{ matrix.stack }}/plan.json
+          # One comment per stack, and one workflow per stack.
+          comment-tag: ${{ matrix.stack }}
+          workflow-id: github-com-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ strategy.job-index }}
+          fail-on-error: true

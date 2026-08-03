@@ -1,15 +1,147 @@
-name: 'StackGuardian CLI'
-description: 'Run sg-cli commands. Read more at https://github.com/StackGuardian/sg-cli/blob/main/README.md.'
-author: 'StackGuardian'
+name: "Tirith Policy Check"
+description: "Evaluate StackGuardian policies against a terraform plan, and report the outcome on the pull request."
+author: "StackGuardian"
+
 branding:
-  icon: 'command'
-  color: 'blue'
+  icon: "shield"
+  color: "purple"
+
 inputs:
-  operation:
-    description: 'sg-cli operation like "workflow create ..." or "stack create ..."'
+  sg-api-key:
+    description: "StackGuardian API key. Must be an organization (sgo_) token: sgu_ tokens are non-functional for SSO-group-only users."
     required: true
+  sg-org:
+    description: "StackGuardian organization name."
+    required: true
+  input-path:
+    description: "Path to the document to evaluate, e.g. the output of `terraform show -json tfplan`. One of input-path or state-path is required."
+    required: false
+
+  sg-api-url:
+    description: "StackGuardian API base URL. Use https://api.us.stackguardian.io/api/v1 for the US region."
+    required: false
+    default: "https://api.app.stackguardian.io/api/v1"
+  sg-dashboard-url:
+    description: "StackGuardian dashboard base URL, used to build run links."
+    required: false
+    default: "https://app.stackguardian.io"
+
+  input-kind:
+    description: "What the input document is: terraform_plan, terraform_state, kubernetes, or json. terraform_state is masked before upload and evaluated by the json provider."
+    required: false
+    default: "terraform_plan"
+  state-path:
+    description: "Optional path to a terraform state file. Masked in the runner before upload and recorded as the TfStateCleaned run fact."
+    required: false
+  infracost-path:
+    description: "Optional path to an `infracost breakdown --format json` document. Required by policies whose required_provider is stackguardian/infracost; if omitted, the step generates one when such a policy is enforced."
+    required: false
+  source-dir:
+    description: "Terraform source directory packed alongside the documents. Excludes .git, .terraform, *.tfstate* and anything in .gitignore."
+    required: false
+    default: "."
+  terraform-version:
+    description: "Recorded on the StackGuardian workflow when it is created."
+    required: false
+
+  comment:
+    description: "Post a sticky comment on the pull request."
+    required: false
+    default: "true"
+  comment-tag:
+    description: "Namespaces the sticky comment and the uploaded archive. Set a distinct value per working directory so matrix jobs do not overwrite each other."
+    required: false
+    default: "default"
+  check:
+    description: "Create a 'Tirith Policy' check run on the head commit."
+    required: false
+    default: "true"
+
+  fail-on-error:
+    description: "Exit non-zero (failing the job) when a policy fails. Note that an unreachable platform or a run that produced no verdict always exits non-zero, regardless of this setting."
+    required: false
+    default: "false"
+
+  timeout:
+    description: "Seconds to wait for the StackGuardian run. Runs on one workflow serialize, so a run may be queued behind another."
+    required: false
+    default: "1800"
+
+  workflow-id:
+    description: "Override the derived workflow identity. By default it is github-com-<org>-<repo>-<workflow-name>."
+    required: false
+  step-template-id:
+    description: "Override the StackGuardian terraform step template. Omit to use the platform's own default."
+    required: false
+  tirith-version:
+    description: "Version of py-tirith to install. Pinned so a green pipeline cannot turn red without anything in the repository changing."
+    required: false
+    default: "1.2.0"
+  github-token:
+    description: "Token used to post the comment and the check run. Never sent to StackGuardian."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  verdict:
+    description: "One of: passed, warned, failed, errored, no-policies, approval-required."
+    value: ${{ steps.tirith.outputs.verdict }}
+  passed:
+    description: "Number of policy rules that passed."
+    value: ${{ steps.tirith.outputs.passed }}
+  failed:
+    description: "Number of policy rules that failed."
+    value: ${{ steps.tirith.outputs.failed }}
+  warned:
+    description: "Number of policy rules that warned."
+    value: ${{ steps.tirith.outputs.warned }}
+  results:
+    description: "The full PolicyEvalResults document as JSON."
+    value: ${{ steps.tirith.outputs.results }}
+  results-file:
+    description: "Path to the full result document on disk. Prefer this over `results` when aggregating many units."
+    value: ${{ steps.tirith.outputs.results-file }}
+  wfrun-id:
+    description: "The StackGuardian workflow run id."
+    value: ${{ steps.tirith.outputs.wfrun-id }}
+  wfrun-url:
+    description: "Link to the run in StackGuardian."
+    value: ${{ steps.tirith.outputs.wfrun-url }}
+  comment-id:
+    description: "The id of the sticky pull-request comment, if one was posted."
+    value: ${{ steps.tirith.outputs.comment-id }}
+
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  args:
-    - ${{ inputs.operation }}
+  using: composite
+  steps:
+    - name: Mask the API key
+      shell: bash
+      run: echo "::add-mask::${{ inputs.sg-api-key }}"
+
+    - name: Install tirith
+      shell: bash
+      run: pip install --quiet "py-tirith @ git+https://github.com/StackGuardian/tirith@${{ inputs.tirith-version }}"
+
+    - name: Evaluate policies
+      id: tirith
+      shell: bash
+      run: python3 "${{ github.action_path }}/scripts/main.py"
+      env:
+        INPUT_SG_API_KEY: ${{ inputs.sg-api-key }}
+        INPUT_SG_ORG: ${{ inputs.sg-org }}
+        INPUT_SG_API_URL: ${{ inputs.sg-api-url }}
+        INPUT_SG_DASHBOARD_URL: ${{ inputs.sg-dashboard-url }}
+        INPUT_INPUT_PATH: ${{ inputs.input-path }}
+        INPUT_INPUT_KIND: ${{ inputs.input-kind }}
+        INPUT_STATE_PATH: ${{ inputs.state-path }}
+        INPUT_INFRACOST_PATH: ${{ inputs.infracost-path }}
+        INPUT_SOURCE_DIR: ${{ inputs.source-dir }}
+        INPUT_TERRAFORM_VERSION: ${{ inputs.terraform-version }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_COMMENT_TAG: ${{ inputs.comment-tag }}
+        INPUT_CHECK: ${{ inputs.check }}
+        INPUT_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_WORKFLOW_ID: ${{ inputs.workflow-id }}
+        INPUT_STEP_TEMPLATE_ID: ${{ inputs.step-template-id }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
