@@ -38,12 +38,32 @@ permissions:
 Policies live in StackGuardian and are selected server-side by their `EnforcedOn` scope. There are
 no policy files in your repository and nothing is evaluated on the runner.
 
+## What actually gets uploaded
+
+**Your terraform source is uploaded, as written.** The archive is the source tree plus the masked
+documents, because that is what the platform unpacks in place of a VCS checkout — and it is what
+policies over HCL will read. Masking applies to the *plan and state documents*, not to your `.tf`
+files.
+
+So a secret hardcoded in HCL reaches StackGuardian in plaintext:
+
+```hcl
+resource "local_sensitive_file" "creds" {
+  content = "hunter2"   # masked in the plan, and still verbatim in main.tf
+}
+```
+
+Excluded automatically: `.git`, `.terraform`, `*.tfstate*`, and anything in `.gitignore`. If you
+have other files that must not travel, add them to `.gitignore`, or point `source-dir` at a
+directory that does not contain them.
+
 ## A note on masking
 
 Terraform's `*_sensitive` markers are **not exhaustive**. A value that flows through `locals`, or
 comes from a provider that did not mark its schema, arrives marked `false` and marker-driven
-masking will not catch it. Dropping `planned_values` and `variables` limits the blast radius, but
-if a value must never leave your infrastructure, do not let it into a plan.
+masking will not catch it. Dropping `planned_values`, `variables` and the literal values in
+`configuration` limits the blast radius, but if a value must never leave your infrastructure, do
+not let it into a plan — and do not commit it to the repository either.
 
 Two related habits worth keeping:
 

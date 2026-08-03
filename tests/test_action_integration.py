@@ -234,6 +234,20 @@ def test_the_raw_plan_on_disk_is_not_packed(tmp_path, stub):
     assert "planned_values" not in packed
 
 
+def test_the_actions_own_scratch_files_are_not_uploaded(tmp_path, stub):
+    """
+    source-dir defaults to "." and the archive packs it, so a scratch file written next to the
+    terraform lands in the upload. Verified in QA: tirith-trigger.json -- which carries the PR
+    title, repo URL and actor -- shipped to the platform. They go to RUNNER_TEMP instead.
+    """
+    run_action(tmp_path, stub)
+
+    with tarfile.open(fileobj=io.BytesIO(uploaded_archive()), mode="r:gz") as tar:
+        names = tar.getnames()
+
+    assert not [n for n in names if n.startswith("tirith-")], names
+
+
 def test_provider_cache_is_not_uploaded(tmp_path, stub):
     source = tmp_path / "src"
     source.mkdir(exist_ok=True)
