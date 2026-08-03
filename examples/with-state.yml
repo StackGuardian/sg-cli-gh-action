@@ -1,0 +1,56 @@
+# Two-phase pipeline: gate the plan before apply, then check the real state afterwards.
+#
+# The post-apply check is the one that sees reality. A plan can pass a policy that the applied
+# infrastructure fails -- provider defaults, computed values, and anything terraform could not
+# know until it ran.
+#
+# Note the state file is written as state.json, NOT terraform.tfstate. With a local backend the
+# shell truncates the redirect target before terraform reads it, so `> terraform.tfstate` destroys
+# the state you were trying to read.
+
+name: terraform
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  plan-and-apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - run: |
+          terraform init -input=false
+          terraform plan -out=tfplan -input=false
+          terraform show -json tfplan > plan.json
+
+      - name: Gate the plan
+        uses: StackGuardian/sg-cli-gh-action@v2
+        with:
+          sg-api-key: ${{ secrets.SG_API_TOKEN }}
+          sg-org: ${{ vars.SG_ORG }}
+          input-path: plan.json
+          comment-tag: pre-apply
+          fail-on-error: true
+
+      - run: terraform apply -auto-approve tfplan
+
+      - run: terraform state pull > state.json
+
+      - name: Check the applied state
+        uses: StackGuardian/sg-cli-gh-action@v2
+        with:
+          sg-api-key: ${{ secrets.SG_API_TOKEN }}
+          sg-org: ${{ vars.SG_ORG }}
+          input-path: state.json
+          # terraform_state, not json: `json` would upload every attribute unmasked.
+          input-kind: terraform_state
+          # A distinct tag, or this comment overwrites the pre-apply one.
+          comment-tag: post-apply
+          fail-on-error: true

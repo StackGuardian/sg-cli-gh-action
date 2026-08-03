@@ -1,14 +1,46 @@
-on: [push]
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
 jobs:
-  execute-sg-cli:
+  test:
     runs-on: ubuntu-latest
-    name: StackGuardian CLI Github Action
-    env:
-      SG_API_TOKEN: 'sgu_xyz'
+    strategy:
+      matrix:
+        python: ["3.9", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v2
-      - name: StackGuardian/workflow-run-action
-        uses: ./ # Uses an action in the root directory
-        id: StackGuardian-CLI
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          operation: "--help"
+          python-version: ${{ matrix.python }}
+      - name: Install tirith and pytest
+        run: |
+          pip install pytest
+          pip install "py-tirith @ git+https://github.com/StackGuardian/tirith@1.2.0"
+      - run: python -m pytest tests/ -q
+
+  smoke:
+    # Proves the composite action wires up and fails cleanly without real credentials. The input
+    # file does not exist, so a green result here would mean the action swallowed a broken run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: smoke
+        continue-on-error: true
+        uses: ./
+        with:
+          sg-api-key: sgo_not_a_real_key
+          sg-org: does-not-exist
+          input-path: no-such-plan.json
+          comment: "false"
+          check: "false"
+          timeout: "30"
+      - name: The action must have failed
+        run: |
+          if [ "${{ steps.smoke.outcome }}" != "failure" ]; then
+            echo "::error::the action reported success with a missing input file"
+            exit 1
+          fi
