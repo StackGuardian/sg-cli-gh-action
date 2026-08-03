@@ -18,6 +18,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import sys
 import uuid
 
@@ -307,9 +308,15 @@ def main():
         return EXIT_TOOL_FAILURE
 
     tag = env("INPUT_COMMENT_TAG", "default")
-    result_path = os.path.abspath("tirith-result.json")
-    markdown_path = os.path.abspath("tirith-comment.md")
-    trigger_path = os.path.abspath("tirith-trigger.json")
+
+    # Written to RUNNER_TEMP, never the working directory. source-dir defaults to "." and the
+    # archive packs it, so a scratch file next to the terraform lands in the upload -- verified in
+    # QA, where tirith-trigger.json shipped to the platform. RUNNER_TEMP is job-scoped, so
+    # results-file stays readable by later steps.
+    scratch = env("RUNNER_TEMP") or tempfile.gettempdir()
+    result_path = os.path.join(scratch, "tirith-result.json")
+    markdown_path = os.path.join(scratch, "tirith-comment.md")
+    trigger_path = os.path.join(scratch, "tirith-trigger.json")
 
     cmd, workflow_id, sha = build_command(result_path, markdown_path, trigger_path, tag)
     log(f"Workflow: {workflow_id}")
