@@ -118,8 +118,8 @@ without this a 20-unit matrix becomes a 20-deep queue.
 `comment-tag` per unit: the sticky comment is found by a marker containing the tag, so shared tags
 mean the legs overwrite each other and you see only whichever finished last.
 
-Note the action slugifies `workflow-id`, so `live/prod/vpc` becomes `live-prod-vpc` — but supply
-something already slug-shaped if you want it predictable.
+The action slugifies `workflow-id`, so `live/prod/vpc` becomes `live-prod-vpc`, and logs the
+rewrite. Supply something already slug-shaped if you want it predictable.
 
 ### What Phase 1 costs you
 

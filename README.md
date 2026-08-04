@@ -4,24 +4,44 @@ Evaluate your StackGuardian policies against a terraform plan in CI, and report 
 pull-request comment and a check run.
 
 ```yaml
-- run: |
-    terraform plan -out=tfplan -input=false
-    terraform show -json tfplan > plan.json
-
-- uses: StackGuardian/sg-cli-gh-action@v2
-  with:
-    sg-api-key: ${{ secrets.SG_API_TOKEN }}
-    sg-org: ${{ vars.SG_ORG }}
-    input-path: plan.json
-    fail-on-error: true
-```
-
-```yaml
 permissions:
   contents: read
   pull-requests: write   # sticky comment
   checks: write          # check run
+
+env:
+  SG_API_TOKEN: ${{ secrets.SG_API_TOKEN }}
+  SG_ORG: ${{ vars.SG_ORG }}
+
+steps:
+  - run: |
+      terraform plan -out=tfplan -input=false
+      terraform show -json tfplan > plan.json
+
+  - uses: StackGuardian/sg-cli-gh-action@v2
 ```
+
+That is the whole integration. With `plan.json` in the working directory the action needs no
+`with:` block at all — it finds the document by convention, derives the workflow identity from the
+repository and workflow filename, and defaults to the `eu` region.
+
+Everything below is for when you want something other than the defaults:
+
+```yaml
+  - uses: StackGuardian/sg-cli-gh-action@v2
+    with:
+      sg-region: us            # eu (default) or us
+      input-path: out/plan.json
+      fail-on-error: true      # fail the job when a policy fails
+```
+
+### Credentials
+
+`SG_API_TOKEN` and `SG_ORG` may be supplied either as environment variables, as above, or as the
+`sg-api-key` and `sg-org` inputs. The environment route exists because GitHub does not expose
+`secrets` or `vars` to an action automatically, so it is the only way to keep the `with:` block
+empty. The key must be an **organization** (`sgo_`) token: `sgu_` tokens are non-functional for
+SSO-group-only users.
 
 ## What it does
 
@@ -38,14 +58,36 @@ permissions:
 Policies live in StackGuardian and are selected server-side by their `EnforcedOn` scope. There are
 no policy files in your repository and nothing is evaluated on the runner.
 
+### Getting your policies to apply
+
+`EnforcedOn` matches on the **workflow**, and this action derives a workflow identity of
+`github-com-<owner>-<repo>-<workflow-filename>` — a workflow that almost certainly did not exist
+when your policies were written. If the verdict comes back `no-policies`, that scope is why. Three
+ways out, in increasing order of effort:
+
+- scope the policy organization-wide (`*`);
+- set `workflow-group` to a group your policies already cover — policies are scoped per group, and
+  an unknown group is *created* rather than rejected, so a typo silently enforces nothing;
+- add the derived workflow to the policy's `EnforcedOn`.
+
+The identity is derived from the workflow **filename**, not its `name:`, so renaming a workflow
+does not silently start a fresh workflow and de-scope every policy pointing at the old one.
+
 ## What actually gets uploaded
 
-**Your terraform source is uploaded, as written.** The archive is the source tree plus the masked
-documents, because that is what the platform unpacks in place of a VCS checkout — and it is what
-policies over HCL will read. Masking applies to the *plan and state documents*, not to your `.tf`
-files.
+By default, **only the masked documents** — the plan, and the state if you pass one. Your terraform
+source stays on the runner.
 
-So a secret hardcoded in HCL reaches StackGuardian in plaintext:
+Set `source-dir` to upload the source tree alongside them. The platform unpacks it in place of a
+VCS checkout, which is what policies over HCL will eventually read. Be aware of what that means:
+masking applies to the plan and state *documents*, not to your `.tf` files, so a secret hardcoded
+in HCL reaches StackGuardian in plaintext.
+
+```yaml
+- uses: StackGuardian/sg-cli-gh-action@v2
+  with:
+    source-dir: .
+```
 
 ```hcl
 resource "local_sensitive_file" "creds" {
@@ -53,9 +95,9 @@ resource "local_sensitive_file" "creds" {
 }
 ```
 
-Excluded automatically: `.git`, `.terraform`, `*.tfstate*`, and anything in `.gitignore`. If you
-have other files that must not travel, add them to `.gitignore`, or point `source-dir` at a
-directory that does not contain them.
+When `source-dir` is set, these are excluded automatically: `.git`, `.terraform`, `*.tfstate*`, and
+anything in `.gitignore`. If you have other files that must not travel, add them to `.gitignore`,
+or point `source-dir` at a directory that does not contain them.
 
 ## A note on masking
 
@@ -76,22 +118,26 @@ Two related habits worth keeping:
 
 | Input | Required | Default | |
 |---|---|---|---|
-| `sg-api-key` | yes | | Organization (`sgo_`) token |
-| `sg-org` | yes | | Organization name |
-| `input-path` | | | Document to evaluate. One of this or `state-path` |
+| `sg-api-key` | | `$SG_API_TOKEN` | Organization (`sgo_`) token |
+| `sg-org` | | `$SG_ORG` | Organization name |
+| `sg-region` | | `eu` | `eu` or `us`. Sets both URLs, so run links always match |
+| `input-path` | | `plan.json` / `tfplan.json` | Document to evaluate, found by convention |
+| `plan-file` | | | Binary plan, rendered with `show -json` in memory |
 | `input-kind` | | `terraform_plan` | `terraform_plan`, `terraform_state`, `kubernetes`, `json` |
 | `state-path` | | | Terraform state, masked before upload |
 | `infracost-path` | | | `infracost breakdown --format json` |
-| `source-dir` | | `.` | Terraform source packed alongside the documents |
+| `source-dir` | | *(none)* | Upload the terraform source too. See above |
 | `fail-on-error` | | `false` | Fail the job when a policy fails |
 | `comment` / `check` | | `true` | Post the comment / check run |
 | `comment-tag` | | `default` | Namespaces the comment and the archive |
 | `timeout` | | `1800` | Seconds to wait for the run |
-| `workflow-id` | | derived | Overrides `github-com-<org>-<repo>-<workflow>` |
+| `workflow-id` | | derived | Overrides `github-com-<owner>-<repo>-<workflow-filename>` |
+| `workflow-group` | | `default` | Workflow group. Policies are scoped per group |
 | `terraform-version` | | | Recorded on the workflow at creation |
 | `step-template-id` | | platform default | Override the terraform step template |
 | `tirith-version` | | `1.2.0` | Pin the CLI version |
-| `sg-api-url` / `sg-dashboard-url` | | prod | Set both together for other regions |
+| `terraform-bin` | | auto | Binary for `plan-file`. Prefers the real one over the CI wrapper |
+| `sg-api-url` / `sg-dashboard-url` | | | Deprecated. Self-hosted or dedicated hosts only |
 
 ## Outputs
 
