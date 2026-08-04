@@ -60,8 +60,11 @@ class Stub(BaseHTTPRequestHandler):
         self._record("GET")
         base = f"http://127.0.0.1:{self.server.server_port}"
 
-        if "configuration_upload_url" in self.path:
-            return self._respond(200, {"msg": {"signedUrl": f"{base}/put-archive", "key": "orgs/acme/wf/a.tar.gz"}})
+        if "file_upload_url" in self.path:
+            # The real shape: the URL as a bare string in msg, the key alongside it in data.
+            return self._respond(
+                200, {"msg": f"{base}/put-archive", "data": {"key": "orgs/acme/wf/a.tar.gz"}}
+            )
         if "/wfruns/" in self.path and self.path.rstrip("/").endswith("wfrun-1"):
             return self._respond(200, {"msg": {"LatestStatus": Stub.run_status}})
         if "/artifacts/" in self.path:
@@ -161,7 +164,8 @@ def run_action(tmp_path, stub, **overrides):
             "GITHUB_API_URL": base,
             "GITHUB_EVENT_NAME": "pull_request",
             "GITHUB_EVENT_PATH": str(event),
-            "GITHUB_WORKFLOW": "policy",
+            "GITHUB_WORKFLOW": "Policy Check",
+            "GITHUB_WORKFLOW_REF": "acme/infra/.github/workflows/policy.yml@refs/heads/main",
             "GITHUB_RUN_ID": "1",
             "GITHUB_ACTOR": "someone",
             "GITHUB_OUTPUT": str(tmp_path / "outputs.txt"),
@@ -187,6 +191,12 @@ def uploaded_archive():
         if request["method"] == "PUT":
             return request["body"]
     return None
+
+
+def archive_members(body):
+    """The member names in the uploaded tarball."""
+    with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as tar:
+        return [m.name for m in tar.getmembers()]
 
 
 def archive_contents(body):
@@ -362,7 +372,126 @@ def test_unreachable_platform_is_red(tmp_path, stub):
 
 
 def test_missing_inputs_fail_fast(tmp_path, stub):
-    completed, _ = run_action(tmp_path, stub, INPUT_SG_ORG="")
+    completed, _ = run_action(tmp_path, stub, INPUT_SG_ORG="", SG_ORG="")
 
     assert completed.returncode == 1
     assert "sg-org" in completed.stdout
+
+
+# --- credentials, identity and scoping ---------------------------------------------------------
+
+
+def test_credentials_can_come_from_the_environment(tmp_path, stub):
+    """
+    What makes the no-`with:` one-liner possible. GitHub exposes neither secrets nor vars as
+    environment automatically, so a job-level `env:` is the only route without inputs.
+    """
+    completed, _ = run_action(
+        tmp_path, stub, INPUT_SG_API_KEY="", INPUT_SG_ORG="", SG_API_TOKEN="sgo_env", SG_ORG="acme"
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert any("/orgs/acme/" in r["path"] for r in Stub.requests)
+
+
+def test_missing_credentials_name_both_routes(tmp_path, stub):
+    completed, _ = run_action(
+        tmp_path, stub, INPUT_SG_API_KEY="", INPUT_SG_ORG="", SG_API_TOKEN="", SG_ORG=""
+    )
+
+    assert completed.returncode == 1
+    assert "sg-api-key" in completed.stdout and "SG_API_TOKEN" in completed.stdout
+
+
+def test_identity_comes_from_the_workflow_filename(tmp_path, stub):
+    """Not $GITHUB_WORKFLOW: that is the `name:` field, and renaming must not re-identify."""
+    run_action(tmp_path, stub, INPUT_WORKFLOW_ID="")
+
+    created = [r for r in Stub.requests if r["method"] == "POST" and r["path"].endswith("/wfs/")]
+    assert created and json.loads(created[0]["body"])["Id"] == "github-com-acme-infra-policy"
+
+
+def test_renaming_the_workflow_does_not_change_the_identity(tmp_path, stub):
+    """
+    The regression: the SG workflow identity used to follow the `name:` field, so a cosmetic rename
+    silently started a fresh workflow and de-scoped every policy pointing at the old one.
+    """
+    run_action(tmp_path, stub, INPUT_WORKFLOW_ID="", GITHUB_WORKFLOW="Something Else Entirely")
+    first = [r for r in Stub.requests if r["method"] == "POST" and r["path"].endswith("/wfs/")]
+    Stub.requests.clear()
+
+    run_action(tmp_path, stub, INPUT_WORKFLOW_ID="", GITHUB_WORKFLOW="Renamed Again")
+    second = [r for r in Stub.requests if r["method"] == "POST" and r["path"].endswith("/wfs/")]
+
+    assert json.loads(first[0]["body"])["Id"] == json.loads(second[0]["body"])["Id"]
+
+
+def test_an_override_is_slugified(tmp_path, stub):
+    """A terragrunt unit path is the documented use; it must not produce a malformed URL."""
+    completed, _ = run_action(tmp_path, stub, INPUT_WORKFLOW_ID="live/prod/vpc")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert any("live-prod-vpc" in r["path"] for r in Stub.requests)
+    assert not any("live/prod/vpc" in r["path"] or "live%2Fprod" in r["path"] for r in Stub.requests)
+
+
+def test_workflow_group_is_used_everywhere(tmp_path, stub):
+    """Policies are scoped per group, so the wrong group silently enforces nothing."""
+    run_action(tmp_path, stub, INPUT_WORKFLOW_GROUP="production-infra")
+
+    # The group is created by POST /wfgrps/ with the name in the body; everything afterwards
+    # addresses it by path.
+    created = [r for r in Stub.requests if r["method"] == "POST" and r["path"].endswith("/wfgrps/")]
+    assert created and json.loads(created[0]["body"])["ResourceName"] == "production-infra"
+
+    scoped = [r["path"] for r in Stub.requests if "/wfgrps/" in r["path"] and not r["path"].endswith("/wfgrps/")]
+    assert scoped
+    assert all("/wfgrps/production-infra/" in p for p in scoped), scoped
+
+
+# --- region ------------------------------------------------------------------------------------
+
+
+def test_region_and_explicit_url_are_not_both_sent(tmp_path, stub):
+    """
+    The CLI rejects the combination, so the wrapper must not manufacture it -- the stub URLs are
+    always explicit, and a region set alongside them would break every other test here.
+    """
+    completed, _ = run_action(tmp_path, stub, INPUT_SG_REGION="us")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    # The explicit URL won: traffic still reached the stub rather than the real US endpoint.
+    assert any("/orgs/acme/" in r["path"] for r in Stub.requests)
+
+
+# --- source upload -----------------------------------------------------------------------------
+
+
+def test_source_is_not_uploaded_by_default(tmp_path, stub):
+    """
+    A one-line action must not ship the working directory to a third party by default. A secret
+    hardcoded in a .tf file would go with it.
+    """
+    run_action(tmp_path, stub, INPUT_SOURCE_DIR="")
+
+    names = archive_members(uploaded_archive())
+    assert "main.tf" not in names
+    assert "plan.json" in names, "the masked document must still be uploaded"
+
+
+def test_source_is_uploaded_when_asked_for(tmp_path, stub):
+    run_action(tmp_path, stub)
+
+    assert "main.tf" in archive_members(uploaded_archive())
+
+
+def test_the_archive_name_is_excluded_from_artifact_sync(tmp_path, stub):
+    """
+    `__sg.` keeps the archive out of the per-run artifact sync. Without it every later run of the
+    workflow downloads it, forever -- the upload sync has no --delete.
+    """
+    run_action(tmp_path, stub)
+
+    upload_urls = [r["path"] for r in Stub.requests if "file_upload_url" in r["path"]]
+    assert upload_urls
+    assert "__sg." in upload_urls[0]

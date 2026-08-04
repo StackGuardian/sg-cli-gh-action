@@ -8,23 +8,32 @@ branding:
 
 inputs:
   sg-api-key:
-    description: "StackGuardian API key. Must be an organization (sgo_) token: sgu_ tokens are non-functional for SSO-group-only users."
-    required: true
+    description: "StackGuardian API key. Must be an organization (sgo_) token: sgu_ tokens are non-functional for SSO-group-only users. May also be supplied as $SG_API_TOKEN."
+    required: false
   sg-org:
-    description: "StackGuardian organization name."
-    required: true
+    description: "StackGuardian organization name. May also be supplied as $SG_ORG."
+    required: false
   input-path:
-    description: "Path to the document to evaluate, e.g. the output of `terraform show -json tfplan`. One of input-path or state-path is required."
+    description: "Path to the document to evaluate, e.g. the output of `terraform show -json tfplan`. Defaults to plan.json or tfplan.json in the working directory."
+    required: false
+  plan-file:
+    description: "Path to a binary terraform plan. Rendered with `terraform show -json` in memory, so no unmasked plan JSON is written to disk. Cannot be combined with input-path."
+    required: false
+  terraform-bin:
+    description: "terraform/tofu binary used for plan-file. Auto-detected, preferring the real binary over the wrapper setup-terraform installs."
     required: false
 
+  sg-region:
+    description: "StackGuardian region: eu or us. Sets both the API and dashboard URLs, so run links always match the environment. Defaults to eu."
+    required: false
   sg-api-url:
-    description: "StackGuardian API base URL. Use https://api.us.stackguardian.io/api/v1 for the US region."
+    description: "DEPRECATED -- use sg-region. API base URL, for a self-hosted or dedicated host only. Cannot be combined with sg-region."
     required: false
-    default: "https://api.app.stackguardian.io/api/v1"
+    deprecationMessage: "Use sg-region instead, unless you are on a self-hosted or dedicated host."
   sg-dashboard-url:
-    description: "StackGuardian dashboard base URL, used to build run links."
+    description: "DEPRECATED -- use sg-region. Dashboard base URL. Inferred from sg-api-url when that names a known region."
     required: false
-    default: "https://app.stackguardian.io"
+    deprecationMessage: "Use sg-region instead, unless you are on a self-hosted or dedicated host."
 
   input-kind:
     description: "What the input document is: terraform_plan, terraform_state, kubernetes, or json. terraform_state is masked before upload and evaluated by the json provider."
@@ -37,9 +46,8 @@ inputs:
     description: "Optional path to an `infracost breakdown --format json` document. Required by policies whose required_provider is stackguardian/infracost; if omitted, the step generates one when such a policy is enforced."
     required: false
   source-dir:
-    description: "Terraform source directory packed alongside the documents. Excludes .git, .terraform, *.tfstate* and anything in .gitignore."
+    description: "Terraform source to upload alongside the documents. Empty by default, so only the masked plan/state are sent. Set it to '.' to include the source; note that a secret hardcoded in a .tf file would then reach the platform. Excludes .git, .terraform, *.tfstate* and anything in .gitignore."
     required: false
-    default: "."
   terraform-version:
     description: "Recorded on the StackGuardian workflow when it is created."
     required: false
@@ -68,8 +76,12 @@ inputs:
     default: "1800"
 
   workflow-id:
-    description: "Override the derived workflow identity. By default it is github-com-<org>-<repo>-<workflow-name>."
+    description: "Override the derived workflow identity. By default it is github-com-<owner>-<repo>-<workflow-filename>, which is stable across renaming the workflow's `name:`. Slugified if it contains anything outside [A-Za-z0-9_-]."
     required: false
+  workflow-group:
+    description: "StackGuardian workflow group the workflow belongs to. Policies are scoped per group, so point this at an existing group to have its policies apply. An unknown group is created, and a typo therefore enforces nothing."
+    required: false
+    default: "default"
   step-template-id:
     description: "Override the StackGuardian terraform step template. Omit to use the platform's own default."
     required: false
@@ -116,7 +128,14 @@ runs:
   steps:
     - name: Mask the API key
       shell: bash
-      run: echo "::add-mask::${{ inputs.sg-api-key }}"
+      # Masks whichever route supplied the key. A token arriving through an env: block backed by a
+      # `vars` value is not masked automatically, and neither is one taken from the environment.
+      run: |
+        for value in "$SG_API_KEY_INPUT" "$SG_API_TOKEN"; do
+          if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+        done
+      env:
+        SG_API_KEY_INPUT: ${{ inputs.sg-api-key }}
 
     - name: Install tirith
       shell: bash
@@ -129,9 +148,12 @@ runs:
       env:
         INPUT_SG_API_KEY: ${{ inputs.sg-api-key }}
         INPUT_SG_ORG: ${{ inputs.sg-org }}
+        INPUT_SG_REGION: ${{ inputs.sg-region }}
         INPUT_SG_API_URL: ${{ inputs.sg-api-url }}
         INPUT_SG_DASHBOARD_URL: ${{ inputs.sg-dashboard-url }}
         INPUT_INPUT_PATH: ${{ inputs.input-path }}
+        INPUT_PLAN_FILE: ${{ inputs.plan-file }}
+        INPUT_TERRAFORM_BIN: ${{ inputs.terraform-bin }}
         INPUT_INPUT_KIND: ${{ inputs.input-kind }}
         INPUT_STATE_PATH: ${{ inputs.state-path }}
         INPUT_INFRACOST_PATH: ${{ inputs.infracost-path }}
@@ -143,5 +165,6 @@ runs:
         INPUT_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
         INPUT_TIMEOUT: ${{ inputs.timeout }}
         INPUT_WORKFLOW_ID: ${{ inputs.workflow-id }}
+        INPUT_WORKFLOW_GROUP: ${{ inputs.workflow-group }}
         INPUT_STEP_TEMPLATE_ID: ${{ inputs.step-template-id }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}

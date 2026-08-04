@@ -26,6 +26,12 @@ permissions:
   checks: write          # the "Tirith Policy" check run
   id-token: write        # your cloud auth, if you use OIDC
 
+env:
+  # Supplied as environment rather than inputs so the action needs no `with:` block at all.
+  # GitHub does not expose secrets or vars to an action automatically, so this is the only route.
+  SG_API_TOKEN: ${{ secrets.SG_API_TOKEN }}   # must be an sgo_ (organization) token
+  SG_ORG: ${{ vars.SG_ORG }}
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
@@ -43,12 +49,12 @@ jobs:
 
       # Added: evaluate policies. Policies live in StackGuardian and are selected by their
       # EnforcedOn scope -- nothing about them is configured here.
+      #
+      # plan.json is found by convention, so the only thing worth setting is whether a failing
+      # policy should fail the job. Drop the `with:` block entirely to have it report and pass.
       - uses: StackGuardian/sg-cli-gh-action@v2
         with:
-          sg-api-key: ${{ secrets.SG_API_TOKEN }}   # must be an sgo_ (organization) token
-          sg-org: ${{ vars.SG_ORG }}
-          input-path: plan.json
-          fail-on-error: true                       # make a failing policy fail the job
+          fail-on-error: true
 
       - if: github.event_name == 'push'
         run: terraform apply -auto-approve -input=false tfplan

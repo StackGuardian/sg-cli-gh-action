@@ -52,6 +52,10 @@ def fail(message):
     print(f"::error::{message}", flush=True)
 
 
+def note(message):
+    print(message, flush=True)
+
+
 def env(name, default=""):
     return os.environ.get(name, default) or default
 
@@ -92,6 +96,54 @@ def slugify_workflow_id(repository, action_name):
     """
     owner, _, repo = (repository or "").partition("/")
     return _slug(f"github-com-{owner}-{repo}-{action_name}")[:100]
+
+
+def workflow_file_name(workflow_ref):
+    """
+    The workflow's file name, from $GITHUB_WORKFLOW_REF.
+
+    The ref looks like `owner/repo/.github/workflows/plan.yml@refs/heads/main`. It names the
+    *entry* workflow, so a reusable workflow called from twenty repositories still yields twenty
+    distinct identities rather than one shared one.
+
+    Preferred over $GITHUB_WORKFLOW, which is the workflow's `name:` field: renaming a workflow
+    would otherwise change the StackGuardian workflow identity, silently starting a fresh run
+    history and de-scoping every policy whose EnforcedOn names the old one. (And when a workflow
+    has no `name:` at all, $GITHUB_WORKFLOW is the file *path*, which slugifies into something
+    nobody would recognise.)
+    """
+    if not workflow_ref:
+        return ""
+    path = workflow_ref.split("@", 1)[0]
+    base = path.rsplit("/", 1)[-1]
+    for suffix in (".yml", ".yaml"):
+        if base.endswith(suffix):
+            return base[: -len(suffix)]
+    return base
+
+
+def resolve_workflow_id():
+    """
+    Resolve the StackGuardian workflow identity, and say out loud when it is rewritten.
+
+    An override is slugified rather than rejected, so a terragrunt unit path like
+    `live/prod/vpc` works as documented -- but it is logged, because a silently rewritten
+    identity de-scopes policies, which is the exact failure this is meant to avoid.
+    """
+    override = env("INPUT_WORKFLOW_ID")
+    if override:
+        slug = _slug(override)[:100]
+        if slug != override:
+            note(f"workflow-id '{override}' slugified to '{slug}'")
+        return slug
+
+    from_file = workflow_file_name(env("GITHUB_WORKFLOW_REF"))
+    if from_file:
+        return slugify_workflow_id(env("GITHUB_REPOSITORY"), from_file)
+
+    # No GITHUB_WORKFLOW_REF: not a GitHub-hosted run, or a very old runner.
+    note("GITHUB_WORKFLOW_REF is unset; deriving the workflow id from GITHUB_WORKFLOW instead")
+    return slugify_workflow_id(env("GITHUB_REPOSITORY"), env("GITHUB_WORKFLOW"))
 
 
 def _event_payload():
@@ -203,9 +255,7 @@ def check_conclusion(verdict):
 def build_command(result_path, markdown_path, trigger_path, tag):
     """Assemble the `tirith platform check` invocation from the action inputs."""
     sha = head_sha()
-    workflow_id = env("INPUT_WORKFLOW_ID") or slugify_workflow_id(
-        env("GITHUB_REPOSITORY"), env("INPUT_ACTION_NAME") or env("GITHUB_WORKFLOW")
-    )
+    workflow_id = resolve_workflow_id()
 
     # Passed as a file rather than on argv: it carries a PR title, which is user-controlled text
     # that would otherwise need shell-safe quoting for no benefit.
@@ -216,10 +266,9 @@ def build_command(result_path, markdown_path, trigger_path, tag):
         "tirith",
         "platform",
         "check",
-        "--org", env("INPUT_SG_ORG"),
-        "--api-url", env("INPUT_SG_API_URL"),
-        "--dashboard-url", env("INPUT_SG_DASHBOARD_URL"),
+        "--org", resolve_org(),
         "--workflow-id", workflow_id,
+        "--workflow-group", env("INPUT_WORKFLOW_GROUP", "default"),
         "--input-kind", env("INPUT_INPUT_KIND", "terraform_plan"),
         "--artifact-tag", tag,
         "--timeout", env("INPUT_TIMEOUT", "1800"),
@@ -232,14 +281,33 @@ def build_command(result_path, markdown_path, trigger_path, tag):
         "--api-key", "-",
     ]
 
+    # A region names both URLs at once. The explicit URLs are still honoured -- they are the only
+    # way to reach a self-hosted install -- but never alongside a region, which the CLI rejects.
+    if env("INPUT_SG_API_URL") or env("INPUT_SG_DASHBOARD_URL"):
+        if env("INPUT_SG_API_URL"):
+            cmd += ["--api-url", env("INPUT_SG_API_URL")]
+        if env("INPUT_SG_DASHBOARD_URL"):
+            cmd += ["--dashboard-url", env("INPUT_SG_DASHBOARD_URL")]
+    elif env("INPUT_SG_REGION"):
+        cmd += ["--region", env("INPUT_SG_REGION")]
+
     if env("INPUT_INPUT_PATH"):
         cmd += ["--input-path", env("INPUT_INPUT_PATH")]
+    if env("INPUT_PLAN_FILE"):
+        cmd += ["--plan-file", env("INPUT_PLAN_FILE")]
+    if env("INPUT_TERRAFORM_BIN"):
+        cmd += ["--terraform-bin", env("INPUT_TERRAFORM_BIN")]
     if env("INPUT_STATE_PATH"):
         cmd += ["--state-path", env("INPUT_STATE_PATH")]
     if env("INPUT_INFRACOST_PATH"):
         cmd += ["--infracost-path", env("INPUT_INFRACOST_PATH")]
+    # The source tree is NOT uploaded unless asked for. The archive would otherwise carry the whole
+    # working directory to the platform, including any secret hardcoded in a .tf file, which is not
+    # a reasonable default for an action someone adds in one line without reading anything.
     if env("INPUT_SOURCE_DIR"):
         cmd += ["--source-dir", env("INPUT_SOURCE_DIR")]
+    else:
+        cmd += ["--no-source"]
     if env("INPUT_TERRAFORM_VERSION"):
         cmd += ["--terraform-version", env("INPUT_TERRAFORM_VERSION")]
     if env("INPUT_STEP_TEMPLATE_ID"):
@@ -297,14 +365,33 @@ def report(result, markdown_path, tag, sha, want_comment, want_check):
             warn(f"Could not create the check run: {e}")
 
 
+def resolve_api_key():
+    """The key, from the input or the environment. See resolve_org for why both are accepted."""
+    return env("INPUT_SG_API_KEY") or os.environ.get("SG_API_TOKEN", "")
+
+
+def resolve_org():
+    """
+    The organization, from the input or the environment.
+
+    Both routes exist so the action can be used with no `with:` block at all. GitHub exposes
+    neither `secrets.*` nor `vars.*` as environment variables automatically, so a job-level `env:`
+    is the only way to supply credentials without one -- and the CLI already reads these two names.
+    """
+    return env("INPUT_SG_ORG") or os.environ.get("SG_ORG", "")
+
+
 def main():
-    api_key = env("INPUT_SG_API_KEY")
-    org = env("INPUT_SG_ORG")
+    api_key = resolve_api_key()
+    org = resolve_org()
     if not api_key or not org:
-        fail("sg-api-key and sg-org are required")
-        return EXIT_TOOL_FAILURE
-    if not env("INPUT_INPUT_PATH") and not env("INPUT_STATE_PATH"):
-        fail("one of input-path or state-path is required")
+        # One message naming every route, because this is the first thing a new user hits.
+        fail(
+            "StackGuardian credentials are required. Supply them either as inputs "
+            "(with: sg-api-key / sg-org) or as environment variables (env: SG_API_TOKEN / SG_ORG). "
+            "The key must be an organization token: it starts with sgo_. "
+            "See https://github.com/StackGuardian/sg-cli-gh-action#credentials"
+        )
         return EXIT_TOOL_FAILURE
 
     tag = env("INPUT_COMMENT_TAG", "default")
