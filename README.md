@@ -157,6 +157,18 @@ Two related habits worth keeping:
 - Use `input-kind: terraform_state` for a state document. Plain `json` uploads it unmasked, and
   state holds every attribute in plaintext.
 
+### What `state-path` publishes
+
+The masked state is also written to the workflow's `tfstate.json` artifact, which is the name
+StackGuardian already treats as a workflow's state document — so it shows up in the State and
+artifacts views rather than only inside the run's archive. A post-apply check therefore updates both
+the Resources view (via the `TfStateCleaned` run fact) and the state artifact.
+
+**That copy is masked, so it cannot be used to run terraform.** It records what was evaluated, not a
+restorable state file. And if the workflow manages its own terraform state, the upload is skipped
+entirely with a warning: for such a workflow that object *is* the live state, and overwriting it would
+be data loss. Policy evaluation is unaffected either way.
+
 ## Inputs
 
 | Input | Required | Default | |
@@ -168,7 +180,7 @@ Two related habits worth keeping:
 | `input-path` | | `plan.json` / `tfplan.json` | Document to evaluate, found by convention |
 | `plan-file` | | | Binary plan, rendered with `show -json` in memory |
 | `input-kind` | | `terraform_plan` | `terraform_plan`, `terraform_state`, `kubernetes`, `json` |
-| `state-path` | | | Terraform state, masked before upload |
+| `state-path` | | | Terraform state, masked before upload. Also published as the workflow's `tfstate.json` — see below |
 | `infracost-path` | | | `infracost breakdown --format json` |
 | `source-dir` | | *(none)* | Upload the terraform source too. See above |
 | `fail-on-error` | | `false` | Fail the job when a policy fails |
