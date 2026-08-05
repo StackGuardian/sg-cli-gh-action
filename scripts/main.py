@@ -310,6 +310,16 @@ def build_command(result_path, markdown_path, trigger_path, tag):
         cmd += ["--no-source"]
     if env("INPUT_TERRAFORM_VERSION"):
         cmd += ["--terraform-version", env("INPUT_TERRAFORM_VERSION")]
+
+    # Recorded on the workflow at creation so it links back to the code. Derived here rather than in
+    # the CLI, which stays platform-agnostic. GITHUB_HEAD_REF is the PR's source branch and is empty
+    # outside pull_request events, where GITHUB_REF_NAME is the branch or tag.
+    repo = env("GITHUB_REPOSITORY")
+    if repo:
+        cmd += ["--repo-url", f"{env('GITHUB_SERVER_URL', 'https://github.com')}/{repo}"]
+        ref = env("GITHUB_HEAD_REF") or env("GITHUB_REF_NAME")
+        if ref:
+            cmd += ["--repo-ref", ref]
     if env("INPUT_STEP_TEMPLATE_ID"):
         cmd += ["--step-template-id", env("INPUT_STEP_TEMPLATE_ID")]
     if sha:

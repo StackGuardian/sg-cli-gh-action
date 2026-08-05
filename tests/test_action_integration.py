@@ -81,6 +81,10 @@ class Stub(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def do_DELETE(self):
+        self._record("DELETE")
+        return self._respond(200, {"msg": "Artifact deleted"})
+
     def do_PATCH(self):
         self._record("PATCH")
         return self._respond(200, {"id": 1})
@@ -495,3 +499,36 @@ def test_the_archive_name_is_excluded_from_artifact_sync(tmp_path, stub):
     upload_urls = [r["path"] for r in Stub.requests if "file_upload_url" in r["path"]]
     assert upload_urls
     assert "__sg." in upload_urls[0]
+
+
+def test_workflow_records_the_source_repo(tmp_path, stub):
+    """
+    So the workflow links back to the code instead of showing a "configure" prompt. GIT_OTHER is
+    the connector-less provider: with isPrivate false it needs no auth, and core pops iacVCSConfig
+    for archive-based runs so nothing ever tries to clone it.
+    """
+    run_action(tmp_path, stub)
+
+    created = [r for r in Stub.requests if r["method"] == "POST" and r["path"].endswith("/wfs/")]
+    source = json.loads(created[0]["body"])["VCSConfig"]["iacVCSConfig"]["customSource"]
+
+    assert source["sourceConfigDestKind"] == "GIT_OTHER"
+    assert source["config"]["repo"] == "https://github.com/acme/infra"
+    assert source["config"]["isPrivate"] is False
+
+
+def test_the_project_archive_is_deleted_after_the_run(tmp_path, stub):
+    """
+    Nothing prunes the artifact prefix -- no lifecycle rule, and neither sync passes --delete -- so
+    an archive left behind is one permanent object per commit, per workflow, forever.
+    """
+    run_action(tmp_path, stub)
+
+    deleted = [r for r in Stub.requests if r["method"] == "DELETE" and "/artifacts/" in r["path"]]
+    assert len(deleted) == 1, [r["path"] for r in Stub.requests if r["method"] == "DELETE"]
+
+    name = deleted[0]["path"].split("/artifacts/", 1)[1].rstrip("/")
+    assert name.startswith("__sg."), name
+    # One path segment: a nested name is swallowed by the greedy <path:wfGrp> converter in the
+    # authorizer and checked against the workflow-group delete permission instead.
+    assert "/" not in name, name
