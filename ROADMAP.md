@@ -1,6 +1,6 @@
-# Tirith Policy Check — roadmap
+# Tirith IaC Governance — roadmap
 
-Scope is the GitHub Action (`StackGuardian/sg-cli-gh-action`). Items that depend on another
+Scope is the GitHub Action (`StackGuardian/tirith-iac-governance-action`). Items that depend on another
 repository say so. Edges are real blockers, not sequencing preferences.
 
 ```mermaid

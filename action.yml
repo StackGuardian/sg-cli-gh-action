@@ -1,5 +1,5 @@
-name: "Tirith Policy Check"
-description: "Evaluate StackGuardian policies against a terraform plan, and report the outcome on the pull request."
+name: "Tirith IaC Governance"
+description: "Evaluate Tirith policies against a terraform plan, and report the outcome on the pull request."
 author: "StackGuardian"
 
 branding:
@@ -8,13 +8,13 @@ branding:
 
 inputs:
   sg-api-key:
-    description: "StackGuardian API key. Must be an organization (sgo_) token: sgu_ tokens are non-functional for SSO-group-only users. May also be supplied as $SG_API_TOKEN. Omit it, with sg-org, to evaluate policy files from this repository locally instead."
+    description: "StackGuardian API key. Must be an organization (sgo_) token: sgu_ tokens are non-functional for SSO-group-only users. May also be supplied as $SG_API_TOKEN. Omit it to evaluate policy files from this repository locally instead. More information: https://docs.stackguardian.io/docs/profile/api_keys/"
     required: false
   sg-org:
-    description: "StackGuardian organization name. May also be supplied as $SG_ORG."
+    description: "StackGuardian organization name. May also be supplied as $SG_ORG. Omit it to evaluate policy files from this repository locally instead."
     required: false
   policy-path:
-    description: "Policy files to evaluate when no credentials are supplied: a file, a directory, or a glob. A directory is searched recursively for *.tirith.json, or failing that for any .json file shaped like a policy. Ignored when credentials are present, because policies then come from StackGuardian."
+    description: "Policy files to evaluate when no credentials are supplied: a file, a directory, or a glob. A directory is searched recursively for *.tirith.json, or failing that for any .json file shaped like a policy. Ignored when SG credentials are present, because policies then come from StackGuardian."
     required: false
     default: ".tirith/policies"
   input-path:
@@ -28,7 +28,7 @@ inputs:
     required: false
 
   sg-region:
-    description: "StackGuardian region: eu or us. Sets both the API and dashboard URLs, so run links always match the environment. Defaults to eu."
+    description: "StackGuardian Platform region: eu or us. Sets both the API and dashboard URLs, so run links always match the environment. Defaults to eu."
     required: false
   sg-api-url:
     description: "DEPRECATED -- use sg-region. API base URL, for a self-hosted or dedicated host only. Cannot be combined with sg-region."

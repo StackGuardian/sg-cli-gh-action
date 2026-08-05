@@ -34,7 +34,7 @@ jobs:
           terraform plan -out=tfplan -input=false
           terraform show -json tfplan > plan.json
 
-      - uses: StackGuardian/sg-cli-gh-action@v2
+      - uses: StackGuardian/tirith-iac-governance-action@v2
         with:
           sg-api-key: ${{ secrets.SG_API_TOKEN }}
           sg-org: ${{ vars.SG_ORG }}

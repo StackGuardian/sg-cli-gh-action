@@ -48,11 +48,11 @@ jobs:
       - run: terraform show -json tfplan > plan.json
 
       # Added: evaluate policies. Policies live in StackGuardian and are selected by their
-      # EnforcedOn scope -- nothing about them is configured here.
+      # EnforcedOn scope -- nothing about them needs to be configured here.
       #
       # plan.json is found by convention, so the only thing worth setting is whether a failing
       # policy should fail the job. Drop the `with:` block entirely to have it report and pass.
-      - uses: StackGuardian/sg-cli-gh-action@v2
+      - uses: StackGuardian/tirith-iac-governance-action@v2
         with:
           fail-on-error: true
 
