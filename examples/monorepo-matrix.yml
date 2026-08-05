@@ -39,6 +39,10 @@ jobs:
           sg-api-key: ${{ secrets.SG_API_TOKEN }}
           sg-org: ${{ vars.SG_ORG }}
           input-path: ${{ matrix.stack }}/plan.json
+          # Scope the upload to this stack. Without it `source-dir` defaults to the working
+          # directory, so every leg would ship the whole repository -- each stack's archive
+          # carrying every other stack's code.
+          source-dir: ${{ matrix.stack }}
           # One comment per stack, and one workflow per stack.
           comment-tag: ${{ matrix.stack }}
           workflow-id: github-com-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ strategy.job-index }}

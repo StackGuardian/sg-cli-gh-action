@@ -118,29 +118,45 @@ does not silently start a fresh workflow and de-scope every policy pointing at t
 
 ## What actually gets uploaded
 
-By default, **only the masked documents** — the plan, and the state if you pass one. Your terraform
-source stays on the runner.
+The masked documents — the plan, and the state if you pass one — **and your terraform source**. The
+platform unpacks the source in place of a VCS checkout, so the code the findings refer to sits
+alongside them; that is what makes automated fixes and run reproduction possible.
 
-Set `source-dir` to upload the source tree alongside them. The platform unpacks it in place of a
-VCS checkout, which is what policies over HCL will eventually read. Be aware of what that means:
-masking applies to the plan and state *documents*, not to your `.tf` files, so a secret hardcoded
-in HCL reaches StackGuardian in plaintext.
+> ### ⚠️ Your committed source ships as written
+>
+> Masking applies to the plan and state **documents**, not to your repository. A secret hardcoded in
+> a `.tf` file reaches StackGuardian in plaintext:
+>
+> ```hcl
+> resource "local_sensitive_file" "creds" {
+>   content = "hunter2"   # masked in the plan, and still verbatim in main.tf
+> }
+> ```
+>
+> Excluded automatically: `.git`, `.terraform`, `*.tfstate*`, and anything in `.gitignore`. If other
+> files must not travel, add them to `.gitignore` or narrow `source-dir`.
+
+`source-dir` defaults to the working directory. Point it at a subdirectory to send less:
 
 ```yaml
 - uses: StackGuardian/sg-cli-gh-action@v2
   with:
-    source-dir: .
+    source-dir: envs/prod
 ```
 
-```hcl
-resource "local_sensitive_file" "creds" {
-  content = "hunter2"   # masked in the plan, and still verbatim in main.tf
-}
+Or set it to an empty string to send **only** the masked documents:
+
+```yaml
+    source-dir: ""
 ```
 
-When `source-dir` is set, these are excluded automatically: `.git`, `.terraform`, `*.tfstate*`, and
-anything in `.gitignore`. If you have other files that must not travel, add them to `.gitignore`,
-or point `source-dir` at a directory that does not contain them.
+That is the escape hatch if you cannot ship HCL to a third party. It is deliberately distinct from
+leaving `source-dir` out, which gets you the default.
+
+**If the source is too large**, the upload falls back to documents-only rather than failing the run —
+the policy verdict is what gates your merge, and it should not be lost to a stray `vendor/` directory.
+You get a warning annotation saying so, and the run records that its archive carries no code. The
+limit is 100 MB compressed; scope `source-dir` or extend `.gitignore` rather than raising it.
 
 ## A note on masking
 
@@ -182,7 +198,7 @@ be data loss. Policy evaluation is unaffected either way.
 | `input-kind` | | `terraform_plan` | `terraform_plan`, `terraform_state`, `kubernetes`, `json` |
 | `state-path` | | | Terraform state, masked before upload. Also published as the workflow's `tfstate.json` — see below |
 | `infracost-path` | | | `infracost breakdown --format json` |
-| `source-dir` | | *(none)* | Upload the terraform source too. See above |
+| `source-dir` | | `.` | Terraform source uploaded with the documents. Narrow it, or `""` to send documents only. See above |
 | `fail-on-error` | | `false` | Fail the job when a policy fails |
 | `comment` / `check` | | `true` | Post the comment / check run |
 | `comment-tag` | | `default` | Namespaces the comment and the archive |

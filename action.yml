@@ -50,8 +50,9 @@ inputs:
     description: "Optional path to an `infracost breakdown --format json` document. Required by policies whose required_provider is stackguardian/infracost; if omitted, the step generates one when such a policy is enforced."
     required: false
   source-dir:
-    description: "Terraform source to upload alongside the documents. Empty by default, so only the masked plan/state are sent. Set it to '.' to include the source; note that a secret hardcoded in a .tf file would then reach the platform. Excludes .git, .terraform, *.tfstate* and anything in .gitignore."
+    description: "Terraform source uploaded alongside the documents, so the platform has the code the findings refer to. Defaults to the working directory. Excludes .git, .terraform, *.tfstate* and anything in .gitignore -- but your committed source ships as written, so a secret hardcoded in a .tf file reaches the platform. Point this at a subdirectory to narrow what is sent, or set it to an empty string to send only the masked documents."
     required: false
+    default: "."
   terraform-version:
     description: "Recorded on the StackGuardian workflow when it is created."
     required: false

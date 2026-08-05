@@ -139,7 +139,14 @@ def plan_with_a_secret():
     }
 
 
-def run_action(tmp_path, stub, **overrides):
+def run_action(tmp_path, stub, unset=(), **overrides):
+    """
+    Run the action against the stub.
+
+    `unset` removes variables the harness would otherwise set, which is the only way to exercise a
+    real action.yml default: the harness pins INPUT_SOURCE_DIR to a subdirectory, so without this a
+    test cannot tell the default from the override.
+    """
     base = f"http://127.0.0.1:{stub.server_port}"
 
     source = tmp_path / "src"
@@ -182,6 +189,8 @@ def run_action(tmp_path, stub, **overrides):
         }
     )
     env.update(overrides)
+    for name in unset:
+        env.pop(name, None)
 
     completed = subprocess.run(
         [sys.executable, ACTION], env=env, cwd=str(tmp_path), capture_output=True, text=True
@@ -483,19 +492,48 @@ def test_region_and_explicit_url_are_not_both_sent(tmp_path, stub):
 # --- source upload -----------------------------------------------------------------------------
 
 
-def test_source_is_not_uploaded_by_default(tmp_path, stub):
+def test_source_is_uploaded_by_default(tmp_path, stub):
     """
-    A one-line action must not ship the working directory to a third party by default. A secret
-    hardcoded in a .tf file would go with it.
+    The findings are about code, so the archive carries the code. An archive of just plan.json gives
+    an autofix consumer nothing to work from.
+
+    Runs with INPUT_SOURCE_DIR *absent*, which is the only way to see the default rather than the
+    harness's override.
+    """
+    run_action(tmp_path, stub, unset=("INPUT_SOURCE_DIR",))
+
+    names = archive_members(uploaded_archive())
+    assert "src/main.tf" in names, names
+    assert "plan.json" in names
+
+
+def test_the_declared_default_matches_the_script(tmp_path, stub):
+    """
+    In a real run the value comes from action.yml, not from the script's fallback. If the two ever
+    disagree, the tests above would be exercising something users never hit.
+    """
+    import re
+
+    action_yml = os.path.join(os.path.dirname(os.path.dirname(ACTION)), "action.yml")
+    block = re.search(r"\n  source-dir:\n(?:    .*\n)+", open(action_yml).read()).group(0)
+
+    assert 'default: "."' in block, block
+
+
+def test_an_empty_source_dir_is_the_opt_out(tmp_path, stub):
+    """
+    Deliberately distinct from absent. Somebody who cannot ship HCL to a third party needs a way to
+    say so, and `source-dir: ""` is it -- so an empty value must not be swallowed by the default.
     """
     run_action(tmp_path, stub, INPUT_SOURCE_DIR="")
 
     names = archive_members(uploaded_archive())
     assert "main.tf" not in names
+    assert "src/main.tf" not in names
     assert "plan.json" in names, "the masked document must still be uploaded"
 
 
-def test_source_is_uploaded_when_asked_for(tmp_path, stub):
+def test_source_is_uploaded_when_a_subdirectory_is_named(tmp_path, stub):
     run_action(tmp_path, stub)
 
     assert "main.tf" in archive_members(uploaded_archive())
@@ -991,3 +1029,26 @@ def test_a_local_run_whose_input_is_missing_keeps_the_comment_findable(tmp_path,
     writes = comment_writes()
     assert [m for m, _ in writes] == ["PATCH"], writes
     assert writes[0][1]["body"].startswith(MARKER)
+
+
+def test_a_dropped_source_tree_raises_a_warning_annotation(tmp_path, stub):
+    """
+    The CLI degrades to documents-only rather than failing when the tree is too large, and logs it.
+    A log line in a green job is easy to miss, and the consequence -- an archive with no code in it --
+    is exactly what somebody reading it later needs to know about.
+    """
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "main.tf").write_text('resource "null_resource" "a" {}')
+    (source / "plan.json").write_text(json.dumps(plan_with_a_secret()))
+    # Random, so gzip cannot compress it back under the limit.
+    (source / "vendor.bin").write_bytes(os.urandom(300_000))
+
+    completed, _ = run_action(tmp_path, stub, TIRITH_MAX_ARCHIVE_BYTES="51200")
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "::warning::" in completed.stdout
+    assert "terraform source was not uploaded" in completed.stdout
+    # The check still ran, and the documents still went.
+    assert "plan.json" in archive_members(uploaded_archive())
+    assert "src/main.tf" not in archive_members(uploaded_archive())
