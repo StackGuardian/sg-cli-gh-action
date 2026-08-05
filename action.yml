@@ -8,11 +8,15 @@ branding:
 
 inputs:
   sg-api-key:
-    description: "StackGuardian API key. Must be an organization (sgo_) token: sgu_ tokens are non-functional for SSO-group-only users. May also be supplied as $SG_API_TOKEN."
+    description: "StackGuardian API key. Must be an organization (sgo_) token: sgu_ tokens are non-functional for SSO-group-only users. May also be supplied as $SG_API_TOKEN. Omit it, with sg-org, to evaluate policy files from this repository locally instead."
     required: false
   sg-org:
     description: "StackGuardian organization name. May also be supplied as $SG_ORG."
     required: false
+  policy-path:
+    description: "Policy files to evaluate when no credentials are supplied: a file, a directory, or a glob. A directory is searched recursively for *.tirith.json, or failing that for any .json file shaped like a policy. Ignored when credentials are present, because policies then come from StackGuardian."
+    required: false
+    default: ".tirith/policies"
   input-path:
     description: "Path to the document to evaluate, e.g. the output of `terraform show -json tfplan`. Defaults to plan.json or tfplan.json in the working directory."
     required: false
@@ -95,6 +99,9 @@ inputs:
     default: ${{ github.token }}
 
 outputs:
+  mode:
+    description: "Which path ran: `platform` (policies from StackGuardian) or `local` (policy files from this repository)."
+    value: ${{ steps.tirith.outputs.mode }}
   verdict:
     description: "One of: passed, warned, failed, errored, no-policies, approval-required."
     value: ${{ steps.tirith.outputs.verdict }}
@@ -151,6 +158,7 @@ runs:
         INPUT_SG_REGION: ${{ inputs.sg-region }}
         INPUT_SG_API_URL: ${{ inputs.sg-api-url }}
         INPUT_SG_DASHBOARD_URL: ${{ inputs.sg-dashboard-url }}
+        INPUT_POLICY_PATH: ${{ inputs.policy-path }}
         INPUT_INPUT_PATH: ${{ inputs.input-path }}
         INPUT_PLAN_FILE: ${{ inputs.plan-file }}
         INPUT_TERRAFORM_BIN: ${{ inputs.terraform-bin }}

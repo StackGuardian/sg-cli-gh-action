@@ -43,11 +43,52 @@ Everything below is for when you want something other than the defaults:
 empty. The key must be an **organization** (`sgo_`) token: `sgu_` tokens are non-functional for
 SSO-group-only users.
 
+## Running without an account
+
+Omit the credentials and the action evaluates policy files from your repository instead, on the
+runner, talking to nothing. Everything you see on the pull request is the same — the same sticky
+comment, the same `Tirith Policy` check run, the same outputs and exit codes:
+
+```yaml
+steps:
+  - run: terraform show -json tfplan > plan.json
+  - uses: StackGuardian/sg-cli-gh-action@v2
+```
+
+with a policy committed at `.tirith/policies/no-public-ingress.tirith.json`. `policy-path` also
+takes a single file or a glob.
+
+Mode is chosen by whether credentials are present — there is no switch — and the log says which one
+ran. **No credentials and no policies is a hard failure, not a skip**: a check that gated nothing
+must not report green.
+
+| | with credentials | without |
+|---|---|---|
+| Where policies come from | StackGuardian, by `EnforcedOn` scope | files in your repository |
+| Where evaluation happens | a StackGuardian workflow run | the runner |
+| Run history, dashboard, `wfrun-url` | yes | no |
+| Org-wide enforcement, drift, approvals | yes | no |
+| Comment, check run, exit codes | identical | identical |
+
+A local run is still masked before anything is rendered. Nothing is uploaded, but evaluator messages
+quote the values they compared and those messages go into the pull-request comment — so masking is
+what keeps a `sensitive` value out of GitHub. It also means a local verdict matches the platform one
+for the same plan, because the platform evaluates the masked document too.
+
+Two limits worth knowing: one policy file is one rule, so `meta.id` and `meta.name` are what appear
+in the comment; and a policy that cannot be evaluated — unparseable, or with unresolved variables —
+fails the job regardless of `fail-on-error`, because "could not evaluate" is a tool failure rather
+than a policy decision. Mark a policy advisory with `"enforcement": "soft_mandatory"` in its `meta`
+to have a failure warn instead of block. Anything unrecognised there blocks.
+
 ## What it does
 
 1. **Masks the plan on your runner**, before anything leaves it. Values terraform marked sensitive
-   are replaced, root `variables` are dropped wholesale, and `planned_values` and `prior_state` are
-   removed entirely.
+   are replaced, root `variables` are dropped wholesale, and `prior_state` is removed entirely.
+   `planned_values` is *rebuilt* from the already-masked `resource_changes` rather than passed
+   through: terraform's own copy mirrors every value with no sensitivity markers at all, so shipping
+   it would leak the secret masked a few lines earlier — but dropping it outright disarmed Infracost
+   and Checkov, which read that section and nothing else.
 2. **Packs** the masked documents together with your terraform source into a `tar.gz`, excluding
    `.git`, `.terraform`, `*.tfstate*` and anything in `.gitignore`.
 3. **Uploads** it and creates a StackGuardian workflow run, which evaluates the policies your
@@ -55,8 +96,10 @@ SSO-group-only users.
 4. **Reports** the verdict: a sticky pull-request comment, a `Tirith Policy` check run, the job
    summary, and action outputs.
 
-Policies live in StackGuardian and are selected server-side by their `EnforcedOn` scope. There are
-no policy files in your repository and nothing is evaluated on the runner.
+With credentials, policies live in StackGuardian and are selected server-side by their `EnforcedOn`
+scope: there are no policy files in your repository and nothing is evaluated on the runner. Without
+them, steps 2 and 3 are replaced by a local evaluation — see
+[Running without an account](#running-without-an-account).
 
 ### Getting your policies to apply
 
@@ -118,8 +161,9 @@ Two related habits worth keeping:
 
 | Input | Required | Default | |
 |---|---|---|---|
-| `sg-api-key` | | `$SG_API_TOKEN` | Organization (`sgo_`) token |
-| `sg-org` | | `$SG_ORG` | Organization name |
+| `sg-api-key` | | `$SG_API_TOKEN` | Organization (`sgo_`) token. Omit for local mode |
+| `sg-org` | | `$SG_ORG` | Organization name. Omit for local mode |
+| `policy-path` | | `.tirith/policies` | Local mode only: a file, directory or glob of policy files |
 | `sg-region` | | `eu` | `eu` or `us`. Sets both URLs, so run links always match |
 | `input-path` | | `plan.json` / `tfplan.json` | Document to evaluate, found by convention |
 | `plan-file` | | | Binary plan, rendered with `show -json` in memory |
@@ -142,7 +186,11 @@ Two related habits worth keeping:
 ## Outputs
 
 `verdict` (`passed` \| `warned` \| `failed` \| `errored` \| `no-policies` \| `approval-required`),
-`passed`, `failed`, `warned`, `results`, `results-file`, `wfrun-id`, `wfrun-url`, `comment-id`.
+`mode` (`platform` \| `local`), `passed`, `failed`, `warned`, `results`, `results-file`, `wfrun-id`,
+`wfrun-url`, `comment-id`.
+
+`wfrun-id` and `wfrun-url` are unset in local mode: no run was recorded, and a link to one that does
+not exist would be worse than none.
 
 ## Exit codes
 
@@ -153,8 +201,16 @@ Two related habits worth keeping:
 | Policies pass or warn | green | green |
 | A policy fails | green | **red** |
 | Run errored, platform unreachable, no verdict | **red** | **red** |
+| Nothing to evaluate: no credentials and no policies | **red** | **red** |
+| A local policy could not be evaluated | **red** | **red** |
 
-The last row is deliberate: a run that never produced a verdict must never look like a pass.
+The last three rows are deliberate: a run that produced no verdict must never look like a pass, and
+neither must one that had nothing to check.
+
+Reporting is separate from the verdict. If `github-token` is empty the comment and the check run are
+skipped with a log line and the exit code is unchanged — the same thing happens on a fork pull
+request, where the token is read-only. Set `comment: false` / `check: false` to turn either off
+deliberately.
 
 ## Matrix and monorepo usage
 

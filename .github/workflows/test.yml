@@ -22,8 +22,67 @@ jobs:
           pip install "py-tirith @ git+https://github.com/StackGuardian/tirith@feat/gate-capable-engine"
       - run: python -m pytest tests/ -q
 
+  smoke-local:
+    # The release gate, asserted rather than assumed: the action with no `with:` block at all, no
+    # credentials and no environment, evaluating policy files committed in the repository.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: A policy and a plan, by convention
+        run: |
+          mkdir -p .tirith/policies
+          cat > .tirith/policies/instance-type.tirith.json <<'JSON'
+          {
+            "meta": {"id": "instance-type-allowed", "name": "Instance types are approved",
+                     "required_provider": "stackguardian/terraform_plan", "version": "v1"},
+            "evaluators": [
+              {"id": "ev", "description": "instance_type must be t3.medium",
+               "condition": {"type": "Equals", "value": "t3.medium", "error_tolerance": 0},
+               "provider_args": {"operation_type": "attribute",
+                                 "terraform_resource_attribute": "instance_type",
+                                 "terraform_resource_type": "aws_instance"}}
+            ],
+            "eval_expression": "ev"
+          }
+          JSON
+          cat > plan.json <<'JSON'
+          {"format_version": "1.2", "terraform_version": "1.5.7",
+           "resource_changes": [
+             {"address": "aws_instance.app", "mode": "managed", "type": "aws_instance",
+              "name": "app",
+              "change": {"actions": ["create"], "before": null,
+                         "after": {"instance_type": "t3.medium"}, "after_sensitive": {}}}]}
+          JSON
+      - id: local
+        uses: ./
+      - name: It must have evaluated locally and passed
+        run: |
+          test "${{ steps.local.outputs.mode }}" = "local" || {
+            echo "::error::expected local mode, got '${{ steps.local.outputs.mode }}'"; exit 1; }
+          test "${{ steps.local.outputs.verdict }}" = "passed" || {
+            echo "::error::expected passed, got '${{ steps.local.outputs.verdict }}'"; exit 1; }
+
+  smoke-local-fails-closed:
+    # The counterpart, and the more important of the two: no credentials AND no policies must be red.
+    # A green result here would mean the action reports success having evaluated nothing at all.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: nothing
+        continue-on-error: true
+        uses: ./
+        with:
+          comment: "false"
+          check: "false"
+      - name: The action must have failed
+        run: |
+          if [ "${{ steps.nothing.outcome }}" != "failure" ]; then
+            echo "::error::the action reported success with nothing to evaluate"
+            exit 1
+          fi
+
   smoke:
-    # Proves the composite action wires up and fails cleanly without real credentials. The input
+    # Proves the composite action wires up and fails cleanly with unusable credentials. The input
     # file does not exist, so a green result here would mean the action swallowed a broken run.
     runs-on: ubuntu-latest
     steps:

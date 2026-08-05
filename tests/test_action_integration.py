@@ -245,7 +245,14 @@ def test_the_raw_plan_on_disk_is_not_packed(tmp_path, stub):
         packed = json.loads(tar.extractfile("plan.json").read())
 
     assert packed["resource_changes"][0]["change"]["after"]["content"] == "__SG_REDACTED__"
-    assert "planned_values" not in packed
+
+    # planned_values is rebuilt from the already-masked resource_changes rather than dropped.
+    # Dropping it disarmed Infracost and Checkov, which read that section and nothing else; keeping
+    # terraform's own copy would have leaked the secret, because it mirrors every value with no
+    # sensitivity markers at all.
+    planned = packed["planned_values"]["root_module"]["resources"]
+    assert planned, packed["planned_values"]
+    assert all(SECRET not in json.dumps(r) for r in planned), planned
 
 
 def test_the_actions_own_scratch_files_are_not_uploaded(tmp_path, stub):
@@ -284,7 +291,7 @@ def test_run_is_created_with_the_archive_and_no_step_config(tmp_path, stub):
     assert len(created) == 1
 
     body = json.loads(created[0]["body"])
-    assert body["TerraformAction"] == {"action": "policy-only"}
+    assert body["TerraformAction"] == {"action": "tirith-check"}
     assert body["terraformProjectZip"] == "orgs/acme/wf/a.tar.gz"
     assert "WfStepsConfig" not in body, "core ignores it for TERRAFORM workflows"
 
@@ -517,18 +524,315 @@ def test_workflow_records_the_source_repo(tmp_path, stub):
     assert source["config"]["isPrivate"] is False
 
 
-def test_the_project_archive_is_deleted_after_the_run(tmp_path, stub):
+def test_the_project_archive_is_retained_for_autofix(tmp_path, stub):
     """
-    Nothing prunes the artifact prefix -- no lifecycle rule, and neither sync passes --delete -- so
-    an archive left behind is one permanent object per commit, per workflow, forever.
+    The archive is the source that produced the findings, and the autofix system reads it back from
+    the run record, so deleting it would remove the only copy of what was actually evaluated.
+
+    Retaining it is safe for later runs -- the `__sg.` prefix keeps it out of the per-run artifact
+    sync -- but it is not free: nothing prunes this prefix, so it is one object per commit and tag.
     """
     run_action(tmp_path, stub)
 
     deleted = [r for r in Stub.requests if r["method"] == "DELETE" and "/artifacts/" in r["path"]]
-    assert len(deleted) == 1, [r["path"] for r in Stub.requests if r["method"] == "DELETE"]
+    assert deleted == [], [r["path"] for r in deleted]
 
-    name = deleted[0]["path"].split("/artifacts/", 1)[1].rstrip("/")
+    uploads = [r for r in Stub.requests if "file_upload_url" in r["path"]]
+    assert uploads, [r["path"] for r in Stub.requests]
+    name = uploads[0]["path"].split("filename=", 1)[1].split("&", 1)[0]
+    # The `__sg.` prefix is what keeps it out of every later run's working directory, and the name
+    # stays flat: a nested key is swallowed by the greedy <path:wfGrp> converter in the authorizer.
     assert name.startswith("__sg."), name
-    # One path segment: a nested name is swallowed by the greedy <path:wfGrp> converter in the
-    # authorizer and checked against the workflow-group delete permission instead.
     assert "/" not in name, name
+
+
+# --- local mode: no StackGuardian credentials --------------------------------------------------
+#
+# The action used to exit 1 the moment credentials were absent. It now evaluates policy files from
+# the repository instead. The tests below are weighted towards the failure modes rather than the
+# happy path, because the one outcome that would make this worse than the old hard-fail is a green
+# check on a pull request that nothing was actually evaluated against.
+
+
+PASSING_POLICY = {
+    "meta": {
+        "id": "instance-type-allowed",
+        "name": "Instance types come from the approved list",
+        "required_provider": "stackguardian/terraform_plan",
+        "version": "v1",
+    },
+    "evaluators": [
+        {
+            "id": "ev",
+            "description": "instance_type must be t3.medium",
+            "condition": {"type": "Equals", "value": "t3.medium", "error_tolerance": 0},
+            "provider_args": {
+                "operation_type": "attribute",
+                "terraform_resource_attribute": "instance_type",
+                "terraform_resource_type": "aws_instance",
+            },
+        }
+    ],
+    "eval_expression": "ev",
+}
+
+
+def failing_policy(**meta):
+    policy = json.loads(json.dumps(PASSING_POLICY))
+    policy["meta"].update({"id": "instance-type-denied", "name": "Instance types are restricted"})
+    policy["meta"].update(meta)
+    policy["evaluators"][0]["condition"]["value"] = "t2.nano"
+    return policy
+
+
+def local_plan():
+    """A plan with a priced resource and a sensitive attribute, so masking is observable."""
+    return {
+        "format_version": "1.2",
+        "terraform_version": "1.5.7",
+        "resource_changes": [
+            {
+                "address": "aws_instance.app",
+                "mode": "managed",
+                "type": "aws_instance",
+                "name": "app",
+                "change": {
+                    "actions": ["create"],
+                    "before": None,
+                    "after": {"instance_type": "t3.medium"},
+                    "after_sensitive": {},
+                },
+            },
+            {
+                "address": "local_sensitive_file.secret",
+                "mode": "managed",
+                "type": "local_sensitive_file",
+                "name": "secret",
+                "change": {
+                    "actions": ["create"],
+                    "before": None,
+                    "after": {"content": SECRET, "filename": "out.txt"},
+                    "after_sensitive": {"content": True},
+                },
+            },
+        ],
+    }
+
+
+def read_outputs(path):
+    """Parse $GITHUB_OUTPUT's heredoc blocks into a dict, values included."""
+    values = {}
+    if not os.path.exists(path):
+        return values
+    lines = open(path).read().split("\n")
+    index = 0
+    while index < len(lines):
+        if "<<" in lines[index]:
+            name, delimiter = lines[index].split("<<", 1)
+            body = []
+            index += 1
+            while index < len(lines) and lines[index] != delimiter:
+                body.append(lines[index])
+                index += 1
+            values[name] = "\n".join(body)
+        index += 1
+    return values
+
+
+def run_local(tmp_path, policies=(("policy.tirith.json", PASSING_POLICY),), plan=None, **overrides):
+    """
+    Run the action with no credentials at all.
+
+    No stub server: local mode must not talk to anything, and a test that provided one could not
+    prove that. GITHUB_REPOSITORY and the token are omitted too, so the reporting path is skipped.
+    """
+    workdir = tmp_path / "repo"
+    (workdir / ".tirith" / "policies").mkdir(parents=True)
+    (workdir / "plan.json").write_text(json.dumps(plan if plan is not None else local_plan()))
+    for name, policy in policies:
+        target = workdir / ".tirith" / "policies" / name
+        target.write_text(policy if isinstance(policy, str) else json.dumps(policy))
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "RUNNER_TEMP": str(scratch),
+        "GITHUB_OUTPUT": str(tmp_path / "outputs.txt"),
+        "INPUT_INPUT_KIND": "terraform_plan",
+    }
+    env.update(overrides)
+
+    completed = subprocess.run(
+        [sys.executable, ACTION], env=env, cwd=str(workdir), capture_output=True, text=True
+    )
+    return completed, read_outputs(str(tmp_path / "outputs.txt")), scratch
+
+
+def test_no_credentials_evaluates_local_policies(tmp_path):
+    completed, outputs, scratch = run_local(tmp_path)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert outputs["mode"] == "local"
+    assert outputs["verdict"] == "passed"
+    assert outputs["passed"] == "1"
+    # Inference is silent by design, so the log has to say which mode ran.
+    assert "evaluated locally" in completed.stdout
+
+    body = (scratch / "tirith-comment.md").read_text()
+    assert "instance-type-allowed" in body
+    # No run was created, so there is nothing to link to.
+    assert "View run in StackGuardian" not in body
+
+
+def test_local_mode_talks_to_nothing(tmp_path):
+    """
+    The whole point of local mode. Run with no API URL, no token and no network stub: if any code
+    path tried to reach StackGuardian it would have to invent a host, and the run would not be green.
+    """
+    completed, outputs, _ = run_local(tmp_path)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "stackguardian.io" not in completed.stdout.replace("sg-api-key", "")
+
+
+def test_local_failing_policy_is_red_with_fail_on_error(tmp_path):
+    completed, outputs, _ = run_local(
+        tmp_path,
+        policies=(("deny.tirith.json", failing_policy()),),
+        INPUT_FAIL_ON_ERROR="true",
+    )
+
+    assert completed.returncode == 3, completed.stdout + completed.stderr
+    assert outputs["verdict"] == "failed"
+    assert outputs["failed"] == "1"
+
+
+def test_local_failing_policy_is_green_without_fail_on_error(tmp_path):
+    """Matches platform mode exactly: fail-on-error is what decides whether a verdict gates."""
+    completed, outputs, _ = run_local(tmp_path, policies=(("deny.tirith.json", failing_policy()),))
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert outputs["verdict"] == "failed"
+
+
+def test_no_credentials_and_no_policies_is_never_green(tmp_path):
+    """
+    The failure this mode most needs to avoid. A user who supplies neither credentials nor policies
+    has configured nothing, and reporting that as a pass would gate nothing while looking like it did.
+    """
+    completed, outputs, _ = run_local(tmp_path, policies=(), INPUT_FAIL_ON_ERROR="false")
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert outputs.get("verdict") == "errored"
+    # One message naming both routes, because this is the first thing a new user hits.
+    combined = completed.stdout + completed.stderr
+    assert "sg-api-key" in combined and "policy-path" in combined
+
+
+def test_an_unevaluable_policy_is_red_regardless_of_fail_on_error(tmp_path):
+    """
+    "Could not evaluate" is a tool failure, not a policy decision, so it ignores fail-on-error for
+    the same reason an unreachable platform does in the other mode.
+    """
+    completed, outputs, scratch = run_local(
+        tmp_path,
+        policies=(("broken.tirith.json", "{ not valid json"),),
+        INPUT_FAIL_ON_ERROR="false",
+    )
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    body = (scratch / "tirith-comment.md").read_text()
+    # Surfaced as an engine problem rather than a policy violation, so it cannot be mistaken for one.
+    assert "engine:" in body
+
+
+def test_a_non_policy_json_file_is_not_evaluated_as_a_policy(tmp_path):
+    """
+    A policy directory routinely also holds the document being evaluated. Without a shape filter the
+    plan is evaluated as a policy, which reports a spurious failure and buries the real findings.
+    """
+    completed, outputs, _ = run_local(
+        tmp_path,
+        policies=(("policy.tirith.json", PASSING_POLICY), ("plan.json", local_plan())),
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "Evaluating 1 policy file(s)" in completed.stdout
+
+
+def test_soft_mandatory_failure_warns_instead_of_failing(tmp_path):
+    completed, outputs, _ = run_local(
+        tmp_path,
+        policies=(("advisory.tirith.json", failing_policy(enforcement="soft_mandatory")),),
+        INPUT_FAIL_ON_ERROR="true",
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert outputs["verdict"] == "warned"
+    assert outputs["warned"] == "1"
+
+
+def test_an_unrecognised_enforcement_still_gates(tmp_path):
+    """An unlabelled or mislabelled policy must block, not slip through as advisory."""
+    completed, outputs, _ = run_local(
+        tmp_path,
+        policies=(("odd.tirith.json", failing_policy(enforcement="whatever")),),
+        INPUT_FAIL_ON_ERROR="true",
+    )
+
+    assert completed.returncode == 3, completed.stdout + completed.stderr
+    assert outputs["verdict"] == "failed"
+    assert "Unrecognised meta.enforcement" in completed.stdout
+
+
+def test_local_mode_masks_before_rendering(tmp_path):
+    """
+    Nothing is uploaded, but evaluator messages embed the values they compared and those messages
+    are copied into the pull-request comment -- so an unmasked local run publishes plan values to
+    GitHub. Masking also keeps a local verdict identical to the platform one for the same plan.
+    """
+    policy = json.loads(json.dumps(PASSING_POLICY))
+    policy["meta"]["id"] = "content-check"
+    policy["evaluators"][0]["condition"]["value"] = "something-else"
+    policy["evaluators"][0]["provider_args"] = {
+        "operation_type": "attribute",
+        "terraform_resource_attribute": "content",
+        "terraform_resource_type": "local_sensitive_file",
+    }
+
+    completed, _, scratch = run_local(tmp_path, policies=(("content.tirith.json", policy),))
+
+    body = (scratch / "tirith-comment.md").read_text()
+    assert SECRET not in body, body
+    assert "__SG_REDACTED__" in body
+    assert SECRET not in (scratch / "tirith-result.json").read_text()
+
+
+def test_reporting_is_skipped_and_said_out_loud_without_a_token(tmp_path):
+    """
+    A missing token is usually a deliberate `github-token: ""`, but it is also what a misconfigured
+    job looks like, and a silent skip makes "no comment appeared" indistinguishable from "the action
+    never ran". The verdict still rides on the exit code.
+    """
+    completed, outputs, _ = run_local(
+        tmp_path,
+        policies=(("deny.tirith.json", failing_policy()),),
+        INPUT_FAIL_ON_ERROR="true",
+        GITHUB_REPOSITORY="acme/infra",
+    )
+
+    assert completed.returncode == 3, completed.stdout + completed.stderr
+    assert "skipping the pull-request comment" in completed.stdout
+
+
+def test_credentials_still_select_platform_mode(tmp_path, stub):
+    """The regression that matters: inference must not divert a configured platform run."""
+    completed, _ = run_action(tmp_path, stub)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    created = [r for r in Stub.requests if r["method"] == "POST" and r["path"].endswith("/wfruns/")]
+    assert created, [r["path"] for r in Stub.requests]
+    assert "mode<<" in (tmp_path / "outputs.txt").read_text()
