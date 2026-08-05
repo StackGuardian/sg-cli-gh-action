@@ -35,6 +35,10 @@ CHECK_NAME = "Tirith Policy"
 # mean to commit as a policy.
 DEFAULT_POLICY_PATH = ".tirith/policies"
 
+# The working directory. Mirrors action.yml's `source-dir` default so a direct invocation of this
+# script behaves the same as the action; an explicitly empty value is the opt-out.
+DEFAULT_SOURCE_DIR = "."
+
 # Exit codes from `tirith platform check`. 3 means a policy said no; 1 means tirith could not
 # reach the platform or the run produced no verdict. The distinction is the whole reason
 # fail-on-error exists, so it must survive the round trip.
@@ -338,11 +342,22 @@ def build_command(result_path, markdown_path, trigger_path, tag):
         cmd += ["--state-path", env("INPUT_STATE_PATH")]
     if env("INPUT_INFRACOST_PATH"):
         cmd += ["--infracost-path", env("INPUT_INFRACOST_PATH")]
-    # The source tree is NOT uploaded unless asked for. The archive would otherwise carry the whole
-    # working directory to the platform, including any secret hardcoded in a .tf file, which is not
-    # a reasonable default for an action someone adds in one line without reading anything.
-    if env("INPUT_SOURCE_DIR"):
-        cmd += ["--source-dir", env("INPUT_SOURCE_DIR")]
+    # The source tree IS uploaded by default, because the findings are about code and whatever reads
+    # the bundle afterwards needs the code they refer to -- an archive of just plan.json gives an
+    # autofix consumer nothing to work from.
+    #
+    # The cost is stated in the README rather than buried here: masking covers the plan and state
+    # documents, not the repository, so a secret hardcoded in HCL reaches the platform as written.
+    #
+    # Read from the environment directly rather than through env(), which cannot tell an absent
+    # variable from an explicitly empty one. That distinction is the whole opt-out: `source-dir: ""`
+    # means documents only, while absent means the default. Defaulting here as well as in action.yml
+    # keeps a direct `python3 scripts/main.py` invocation behaving like the action.
+    source_dir = os.environ.get("INPUT_SOURCE_DIR")
+    if source_dir is None:
+        source_dir = DEFAULT_SOURCE_DIR
+    if source_dir:
+        cmd += ["--source-dir", source_dir]
     else:
         cmd += ["--no-source"]
     if env("INPUT_TERRAFORM_VERSION"):
@@ -600,6 +615,17 @@ def main():
     set_output("warned", str(counts.get("warned", 0)))
     set_output("results", json.dumps(result.get("policy_results") or {}))
     set_output("results-file", result_path)
+
+    # The CLI degrades to documents-only rather than failing when the source tree is too large. It
+    # logs that, but a log line in a green job is easy to miss, and the consequence is that whatever
+    # reads the bundle later has no code. The annotation is raised here rather than in the CLI, which
+    # stays VCS-agnostic so a GitLab or Jenkins caller reuses it unchanged.
+    if result.get("source_skipped_reason"):
+        warn(
+            f"The terraform source was not uploaded: {result['source_skipped_reason']} "
+            "The policy check ran, but the archive for this run carries no code. Set source-dir to "
+            "your terraform directory, or add the large paths to .gitignore."
+        )
     if result.get("wfrun_id"):
         set_output("wfrun-id", result["wfrun_id"])
     if result.get("wfrun_url"):
