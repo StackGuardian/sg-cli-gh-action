@@ -35,6 +35,10 @@ class Stub(BaseHTTPRequestHandler):
     requests = []
     run_status = "COMPLETED"
     policy_results = {}
+    # What GET /issues/<n>/comments returns. Empty by default; a test that wants to exercise the
+    # sticky-comment *reuse* path sets it, which nothing did before -- which is how a bug that
+    # destroyed the comment on every failing run got out.
+    existing_comments = []
 
     def log_message(self, *args):
         pass
@@ -72,7 +76,7 @@ class Stub(BaseHTTPRequestHandler):
         if "/wfrunfacts/" in self.path:
             return self._respond(404, {"msg": "not found"})
         if "/issues/" in self.path and "/comments" in self.path:
-            return self._respond(200, [])
+            return self._respond(200, Stub.existing_comments)
         return self._respond(200, {"msg": "ok"})
 
     def do_PUT(self):
@@ -105,6 +109,7 @@ def stub():
     Stub.requests = []
     Stub.run_status = "COMPLETED"
     Stub.policy_results = {}
+    Stub.existing_comments = []
     server = HTTPServer(("127.0.0.1", 0), Stub)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -836,3 +841,153 @@ def test_credentials_still_select_platform_mode(tmp_path, stub):
     created = [r for r in Stub.requests if r["method"] == "POST" and r["path"].endswith("/wfruns/")]
     assert created, [r["path"] for r in Stub.requests]
     assert "mode<<" in (tmp_path / "outputs.txt").read_text()
+
+
+# --- sticky-comment stickiness -----------------------------------------------------------------
+#
+# This block exists because of a live defect. On a run that produced no report, `report()` fell back
+# to a bare `"Tirith policy check"` string with no marker and PATCHed it over the good sticky
+# comment. The marker was then gone, so the comment could never be found again and every later run
+# posted a fresh one. Observed in the wild:
+#
+#   id=5191457956  created 12:01:32  updated 12:03:56  body="Tirith policy check"  (19 chars)
+#
+# The suite could not have caught it: the stub always returned an empty comment list, so no PATCH
+# was ever issued in a test.
+
+MARKER = "[//]: <> (tirith-comment, tag=default)"
+
+
+def existing_comment(comment_id=99, author_type="Bot", body=None):
+    return {
+        "id": comment_id,
+        "user": {"login": "github-actions[bot]", "type": author_type},
+        "body": body if body is not None else f"{MARKER}\n\n## 🛡️ Tirith — 1 passed\n",
+    }
+
+
+def comment_writes():
+    """(method, parsed body) for every comment create/update the stub saw."""
+    writes = []
+    for request in Stub.requests:
+        if "/comments" in request["path"] and request["method"] in ("POST", "PATCH"):
+            writes.append((request["method"], json.loads(request["body"] or b"{}")))
+    return writes
+
+
+def test_an_existing_comment_is_edited_not_reposted(tmp_path, stub):
+    Stub.existing_comments = [existing_comment(comment_id=4242)]
+
+    run_action(tmp_path, stub)
+
+    writes = comment_writes()
+    assert [m for m, _ in writes] == ["PATCH"], writes
+    patched = [r for r in Stub.requests if r["method"] == "PATCH" and "/comments/" in r["path"]]
+    assert patched[0]["path"].endswith("/comments/4242"), patched[0]["path"]
+
+
+def test_a_comment_from_a_pat_is_still_found(tmp_path, stub):
+    """
+    A `github-token` overridden with a personal access token authors the comment as a `User`, not a
+    `Bot`. Matching on the author alone meant the action never found its own comment and posted a
+    new one on every run, forever.
+    """
+    Stub.existing_comments = [existing_comment(comment_id=77, author_type="User")]
+
+    run_action(tmp_path, stub)
+
+    assert [m for m, _ in comment_writes()] == ["PATCH"]
+
+
+def test_a_human_quoting_the_marker_is_not_overwritten(tmp_path, stub):
+    """The reason the author check exists at all. A quote has the marker, but not as line 1."""
+    Stub.existing_comments = [
+        existing_comment(comment_id=5, author_type="User", body=f"I think this is wrong:\n\n> {MARKER}\n")
+    ]
+
+    run_action(tmp_path, stub)
+
+    assert [m for m, _ in comment_writes()] == ["POST"], comment_writes()
+
+
+def test_every_posted_body_starts_with_the_marker(tmp_path, stub):
+    """The invariant the bug violated. Whatever the outcome, the comment must stay findable."""
+    Stub.policy_results = {}
+    Stub.run_status = "ERRORED"
+
+    run_action(tmp_path, stub)
+
+    writes = comment_writes()
+    assert writes, "no comment was posted at all"
+    for method, payload in writes:
+        assert payload["body"].startswith(MARKER), (method, payload["body"][:120])
+
+
+def run_local_reporting(tmp_path, stub, policies, **overrides):
+    """Local mode, but with the GitHub stub wired up so the comment path is exercised."""
+    workdir = tmp_path / "repo"
+    (workdir / ".tirith" / "policies").mkdir(parents=True)
+    (workdir / "plan.json").write_text(json.dumps(local_plan()))
+    for name, policy in policies:
+        (workdir / ".tirith" / "policies" / name).write_text(
+            policy if isinstance(policy, str) else json.dumps(policy)
+        )
+
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"pull_request": {"number": 7, "head": {"sha": "9f2c1ab" + "0" * 33}}}))
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "RUNNER_TEMP": str(scratch),
+        "GITHUB_OUTPUT": str(tmp_path / "outputs.txt"),
+        "INPUT_INPUT_KIND": "terraform_plan",
+        "INPUT_GITHUB_TOKEN": "ghs_test",
+        "GITHUB_REPOSITORY": "acme/infra",
+        "GITHUB_API_URL": f"http://127.0.0.1:{stub.server_port}",
+        "GITHUB_EVENT_NAME": "pull_request",
+        "GITHUB_EVENT_PATH": str(event),
+    }
+    env.update(overrides)
+
+    completed = subprocess.run(
+        [sys.executable, ACTION], env=env, cwd=str(workdir), capture_output=True, text=True
+    )
+    return completed
+
+
+def test_a_local_run_with_nothing_to_evaluate_keeps_the_comment_findable(tmp_path, stub):
+    """
+    The exact failure that was observed. Run 1 posts findings; run 2 finds no policies. Run 2 must
+    edit the comment to say so -- with the marker intact -- not replace it with a bare string that
+    orphans it.
+    """
+    Stub.existing_comments = [existing_comment(comment_id=1234)]
+
+    completed = run_local_reporting(tmp_path, stub, policies=())
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+
+    writes = comment_writes()
+    assert [m for m, _ in writes] == ["PATCH"], writes
+    body = writes[0][1]["body"]
+    assert body.startswith(MARKER), body[:200]
+    # And it says what to do about it, rather than just "Tirith policy check".
+    assert "policy-path" in body or "credentials" in body
+
+
+def test_a_local_run_whose_input_is_missing_keeps_the_comment_findable(tmp_path, stub):
+    """The other early return: a LocalError from prepare_input, e.g. no plan document."""
+    Stub.existing_comments = [existing_comment(comment_id=555)]
+
+    completed = run_local_reporting(
+        tmp_path, stub, policies=(("policy.tirith.json", PASSING_POLICY),), INPUT_INPUT_PATH="no-such-plan.json"
+    )
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    writes = comment_writes()
+    assert [m for m, _ in writes] == ["PATCH"], writes
+    assert writes[0][1]["body"].startswith(MARKER)

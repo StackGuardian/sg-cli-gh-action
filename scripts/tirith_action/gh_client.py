@@ -52,8 +52,15 @@ class GitHubClient:
         """
         Find this action's own previous comment by its hidden marker.
 
-        Matches on the marker *and* on the comment being authored by a bot, so a human quoting the
-        marker in a reply cannot cause the action to overwrite their comment.
+        A match needs the marker *and* one of two signals that the comment is ours, so a human
+        quoting the marker in a reply cannot cause the action to overwrite what they wrote:
+
+          * the author is a Bot -- true for the default `${{ github.token }}`; or
+          * the body *begins* with the marker, which is where the renderer always puts it.
+
+        The second signal is not redundant. With `github-token` overridden by a personal access
+        token the comment is authored by a `User`, so the Bot test alone never matched and the
+        action posted a fresh comment on every single run, forever.
         """
         page = 1
         while page <= 10:
@@ -63,7 +70,10 @@ class GitHubClient:
             if status != 200 or not comments:
                 return None
             for comment in comments:
-                if marker in (comment.get("body") or "") and (comment.get("user") or {}).get("type") == "Bot":
+                body = comment.get("body") or ""
+                if marker not in body:
+                    continue
+                if body.startswith(marker) or (comment.get("user") or {}).get("type") == "Bot":
                     return comment["id"]
             if len(comments) < 100:
                 return None

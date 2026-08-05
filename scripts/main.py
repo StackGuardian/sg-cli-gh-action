@@ -237,6 +237,36 @@ def comment_marker(tag):
     return f"[//]: <> (tirith-comment, tag={tag})"
 
 
+def write_text(path, content):
+    """Best-effort write. A reporting failure must not change the verdict."""
+    try:
+        with open(path, "w") as f:
+            f.write(content)
+    except OSError as e:
+        warn(f"Could not write {path}: {e}")
+
+
+def write_json(path, payload):
+    write_text(path, json.dumps(payload, indent=2))
+
+
+def failure_comment(tag, headline, detail=None):
+    """
+    A comment body for a run that produced no report.
+
+    It exists because of a live bug: the fallback here used to be a bare string with no marker, and
+    PATCHing that over a good sticky comment removed the very thing `find_sticky_comment` searches
+    for. The comment then became unfindable, so every later run posted a fresh one and left the
+    mangled stub behind. **Any body this action ever posts must begin with the marker.**
+    """
+    lines = [comment_marker(tag), "", f"## 🛡️ {headline}", ""]
+    if detail:
+        lines += [detail, ""]
+    lines += ["<sub>Tirith produced no policy verdict, so this check is red regardless of "
+              "<code>fail-on-error</code>: not knowing is not the same as passing.</sub>"]
+    return "\n".join(lines)
+
+
 def check_conclusion(verdict):
     """
     Map a verdict to a GitHub check-run conclusion.
@@ -359,7 +389,14 @@ def report(result, markdown_path, tag, sha, want_comment, want_check):
         with open(markdown_path) as f:
             body = f.read()
     except OSError:
-        body = result.get("headline", "Tirith policy check")
+        body = failure_comment(tag, result.get("headline") or "Tirith could not evaluate policies")
+
+    if not body.startswith(comment_marker(tag)):
+        # Defence in depth for the bug above. Whatever produced this body, posting it without the
+        # marker would orphan the sticky comment permanently, so wrap it rather than trust it.
+        body = failure_comment(
+            tag, result.get("headline") or "Tirith could not evaluate policies", body.strip()[:2000] or None
+        )
 
     gh = GitHubClient(token, repository, api_url=env("GITHUB_API_URL", "https://api.github.com"))
     verdict = result.get("verdict", "errored")
@@ -415,6 +452,21 @@ def run_local(result_path, markdown_path, tag):
     scratch = os.path.dirname(result_path)
     policy_path = env("INPUT_POLICY_PATH", DEFAULT_POLICY_PATH)
 
+    def tool_failure(message):
+        """
+        Fail, but leave a report behind.
+
+        These paths used to return without writing either file, so `report()` fell through to a
+        marker-less body and destroyed the sticky comment. Writing both keeps the comment findable
+        and, more usefully, puts the reason on the pull request instead of only in the job log.
+        """
+        headline = "Tirith could not evaluate policies"
+        fail(message)
+        write_json(result_path, {"status": "ERRORED", "verdict": "errored", "counts": {}, "headline": headline,
+                                 "policy_results": {}, "mode": "local"})
+        write_text(markdown_path, failure_comment(tag, headline, message))
+        return EXIT_TOOL_FAILURE
+
     try:
         _, _, report = local.tirith_modules()
 
@@ -422,14 +474,13 @@ def run_local(result_path, markdown_path, tag):
         if not policies:
             # The one outcome this whole mode must never produce is a green check on a pull request
             # nothing was evaluated against. No credentials and no policies is not a skip.
-            fail(
+            return tool_failure(
                 "Nothing to evaluate: no StackGuardian credentials, and no policy files found at "
                 f"'{policy_path}'. Either supply credentials (with: sg-api-key / sg-org, or env: "
                 "SG_API_TOKEN / SG_ORG) to evaluate the policies enforced in your organization, or "
                 "commit policy files and point policy-path at them. "
                 "See https://github.com/StackGuardian/sg-cli-gh-action#running-without-an-account"
             )
-            return EXIT_TOOL_FAILURE
 
         input_path, redactions = local.prepare_input(
             env("INPUT_INPUT_PATH"),
@@ -451,8 +502,7 @@ def run_local(result_path, markdown_path, tag):
             ),
         )
     except LocalError as e:
-        fail(str(e))
-        return EXIT_TOOL_FAILURE
+        return tool_failure(str(e))
 
     for path, reason in errored:
         warn(f"Could not evaluate {path}: {reason}")
@@ -483,21 +533,11 @@ def run_local(result_path, markdown_path, tag):
         "policies_errored": len(errored),
     }
 
-    try:
-        with open(result_path, "w") as f:
-            json.dump(result, f, indent=2)
-    except OSError as e:
-        warn(f"Could not write the result document: {e}")
-
-    try:
-        with open(markdown_path, "w") as f:
-            f.write(
-                report.render_markdown(
-                    policy_results, "COMPLETED", None, marker=comment_marker(tag)
-                )
-            )
-    except OSError as e:
-        warn(f"Could not write the comment body: {e}")
+    write_json(result_path, result)
+    write_text(
+        markdown_path,
+        report.render_markdown(policy_results, "COMPLETED", None, marker=comment_marker(tag)),
+    )
 
     log(result["headline"])
 
