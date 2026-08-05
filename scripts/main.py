@@ -24,9 +24,16 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from tirith_action import local  # noqa: E402
 from tirith_action.gh_client import GitHubClient, GitHubError  # noqa: E402
+from tirith_action.local import LocalError  # noqa: E402
 
 CHECK_NAME = "Tirith Policy"
+
+# Where local mode looks for policies when policy-path is not set. A convention rather than a
+# search: guessing across the whole repository would eventually evaluate something the user did not
+# mean to commit as a policy.
+DEFAULT_POLICY_PATH = ".tirith/policies"
 
 # Exit codes from `tirith platform check`. 3 means a policy said no; 1 means tirith could not
 # reach the platform or the run produced no verdict. The distinction is the whole reason
@@ -341,6 +348,11 @@ def report(result, markdown_path, tag, sha, want_comment, want_check):
     token = env("INPUT_GITHUB_TOKEN")
     repository = env("GITHUB_REPOSITORY")
     if not token or not repository:
+        # Said out loud rather than skipped in silence: a missing token is usually a deliberate
+        # `github-token: ""`, but it is also what a misconfigured job looks like, and "no comment
+        # appeared" is otherwise indistinguishable from "the action never ran".
+        missing = "github-token" if not token else "GITHUB_REPOSITORY"
+        log(f"No {missing}; skipping the pull-request comment and the check run. The verdict is still in the exit code.")
         return
 
     try:
@@ -391,19 +403,117 @@ def resolve_org():
     return env("INPUT_SG_ORG") or os.environ.get("SG_ORG", "")
 
 
+def run_local(result_path, markdown_path, tag):
+    """
+    Evaluate policies on the runner, with no StackGuardian involvement.
+
+    Writes the same two files `tirith platform check` writes -- the result document and the comment
+    body -- so everything downstream is identical in both modes: the outputs, the sticky comment,
+    the check run, the step summary. Returns an exit code from the same three values the CLI uses,
+    for the same reasons.
+    """
+    scratch = os.path.dirname(result_path)
+    policy_path = env("INPUT_POLICY_PATH", DEFAULT_POLICY_PATH)
+
+    try:
+        _, _, report = local.tirith_modules()
+
+        policies = local.discover_policies(policy_path)
+        if not policies:
+            # The one outcome this whole mode must never produce is a green check on a pull request
+            # nothing was evaluated against. No credentials and no policies is not a skip.
+            fail(
+                "Nothing to evaluate: no StackGuardian credentials, and no policy files found at "
+                f"'{policy_path}'. Either supply credentials (with: sg-api-key / sg-org, or env: "
+                "SG_API_TOKEN / SG_ORG) to evaluate the policies enforced in your organization, or "
+                "commit policy files and point policy-path at them. "
+                "See https://github.com/StackGuardian/sg-cli-gh-action#running-without-an-account"
+            )
+            return EXIT_TOOL_FAILURE
+
+        input_path, redactions = local.prepare_input(
+            env("INPUT_INPUT_PATH"),
+            env("INPUT_PLAN_FILE"),
+            env("INPUT_TERRAFORM_BIN"),
+            env("INPUT_INPUT_KIND", "terraform_plan"),
+            env("INPUT_SOURCE_DIR"),
+            scratch,
+        )
+        if redactions:
+            log(f"Masked {redactions} sensitive value(s) before evaluating")
+
+        log(f"Evaluating {len(policies)} policy file(s) from '{policy_path}'")
+        policy_results, errored = local.evaluate(
+            policies,
+            input_path,
+            on_unknown_enforcement=lambda value: warn(
+                f"Unrecognised meta.enforcement '{value}'; treating a failing policy as blocking"
+            ),
+        )
+    except LocalError as e:
+        fail(str(e))
+        return EXIT_TOOL_FAILURE
+
+    for path, reason in errored:
+        warn(f"Could not evaluate {path}: {reason}")
+
+    counts, _ = report.summarize(policy_results)
+    # Rendered as a completed evaluation on purpose. Results genuinely were produced, and the
+    # renderer's ERRORED narrative ("the workflow run finished as ERRORED without producing policy
+    # results") would be simply untrue here. A policy that could not be evaluated is already a
+    # visible FAIL carrying its own reason, and the exit code below is what actually gates.
+    verdict = report.verdict(counts, "COMPLETED")
+
+    result = {
+        "status": "COMPLETED",
+        "verdict": verdict,
+        "counts": {
+            "passed": counts.get(report.PASS, 0),
+            "failed": counts.get(report.FAIL, 0),
+            "warned": counts.get(report.WARN, 0),
+            "approval_required": counts.get(report.APPROVAL_REQUIRED, 0),
+            "skipped": counts.get("SKIPPED", 0),
+        },
+        "headline": report.headline(counts, verdict),
+        "policy_results": policy_results,
+        # No wfrun_id or wfrun_url: nothing was recorded on the platform, and inventing a link
+        # would point at a run that does not exist.
+        "mode": "local",
+        "policies_evaluated": len(policies),
+        "policies_errored": len(errored),
+    }
+
+    try:
+        with open(result_path, "w") as f:
+            json.dump(result, f, indent=2)
+    except OSError as e:
+        warn(f"Could not write the result document: {e}")
+
+    try:
+        with open(markdown_path, "w") as f:
+            f.write(
+                report.render_markdown(
+                    policy_results, "COMPLETED", None, marker=comment_marker(tag)
+                )
+            )
+    except OSError as e:
+        warn(f"Could not write the comment body: {e}")
+
+    log(result["headline"])
+
+    # A policy that could not be evaluated is a tool failure, not a policy decision, so it ignores
+    # fail-on-error exactly as an unreachable platform does in the other mode.
+    if errored:
+        return EXIT_TOOL_FAILURE
+    if verdict == "failed" and env_bool("INPUT_FAIL_ON_ERROR"):
+        return EXIT_POLICY_FAILED
+    return EXIT_OK
+
+
 def main():
     api_key = resolve_api_key()
     org = resolve_org()
-    if not api_key or not org:
-        # One message naming every route, because this is the first thing a new user hits.
-        fail(
-            "StackGuardian credentials are required. Supply them either as inputs "
-            "(with: sg-api-key / sg-org) or as environment variables (env: SG_API_TOKEN / SG_ORG). "
-            "The key must be an organization token: it starts with sgo_. "
-            "See https://github.com/StackGuardian/sg-cli-gh-action#credentials"
-        )
-        return EXIT_TOOL_FAILURE
-
+    mode = "platform" if (api_key and org) else "local"
     tag = env("INPUT_COMMENT_TAG", "default")
 
     # Written to RUNNER_TEMP, never the working directory. source-dir defaults to "." and the
@@ -415,10 +525,23 @@ def main():
     markdown_path = os.path.join(scratch, "tirith-comment.md")
     trigger_path = os.path.join(scratch, "tirith-trigger.json")
 
-    cmd, workflow_id, sha = build_command(result_path, markdown_path, trigger_path, tag)
-    log(f"Workflow: {workflow_id}")
+    set_output("mode", mode)
 
-    completed = subprocess.run(cmd, input=api_key + "\n", text=True)
+    if mode == "platform":
+        cmd, workflow_id, sha = build_command(result_path, markdown_path, trigger_path, tag)
+        log(f"Workflow: {workflow_id}")
+        returncode = subprocess.run(cmd, input=api_key + "\n", text=True).returncode
+    else:
+        # Inferred, so it has to be stated. A user who meant to run against the platform and typo'd
+        # a secret name would otherwise get a green check having evaluated only whatever policies
+        # happen to be in the repository.
+        notice(
+            "No StackGuardian credentials found, so policies are being evaluated locally on this "
+            "runner. Supply sg-api-key/sg-org (or SG_API_TOKEN/SG_ORG) to evaluate the policies "
+            "enforced in your organization and record the run on the dashboard."
+        )
+        sha = head_sha()
+        returncode = run_local(result_path, markdown_path, tag)
 
     result = {}
     if os.path.exists(result_path):
@@ -456,11 +579,11 @@ def main():
 
     # The CLI already decided this; passing its code through keeps one source of truth for what
     # counts as a failure. A tool failure is red regardless of fail-on-error.
-    if completed.returncode == EXIT_TOOL_FAILURE:
+    if returncode == EXIT_TOOL_FAILURE:
         fail("Tirith could not complete the check; failing closed regardless of fail-on-error")
-    elif completed.returncode == EXIT_POLICY_FAILED:
+    elif returncode == EXIT_POLICY_FAILED:
         fail(result.get("headline", "Policy check failed"))
-    return completed.returncode
+    return returncode
 
 
 if __name__ == "__main__":
