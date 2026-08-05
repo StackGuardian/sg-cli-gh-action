@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tirith Policy Check -- GitHub Action entry point.
+Tirith IaC Governance -- GitHub Action entry point.
 
 This is a wrapper. Everything that talks to StackGuardian -- masking, packing, uploading, running,
 polling, rendering -- lives in the `tirith` CLI (`tirith platform check`). What is left here is
@@ -430,7 +430,7 @@ def report(result, markdown_path, tag, sha, want_comment, want_check):
                 head_sha=sha,
                 name=CHECK_NAME if tag == "default" else f"{CHECK_NAME} ({tag})",
                 conclusion=check_conclusion(verdict),
-                title=result.get("headline", "Tirith policy check"),
+                title=result.get("headline", "Tirith IaC Governance"),
                 # The marker is meaningless outside an issue comment.
                 summary="\n".join(l for l in body.split("\n") if not l.startswith("[//]: <>")),
                 details_url=result.get("wfrun_url"),
@@ -494,7 +494,7 @@ def run_local(result_path, markdown_path, tag):
                 f"'{policy_path}'. Either supply credentials (with: sg-api-key / sg-org, or env: "
                 "SG_API_TOKEN / SG_ORG) to evaluate the policies enforced in your organization, or "
                 "commit policy files and point policy-path at them. "
-                "See https://github.com/StackGuardian/sg-cli-gh-action#running-without-an-account"
+                "See https://github.com/StackGuardian/tirith-iac-governance-action#running-without-an-account"
             )
 
         input_path, redactions = local.prepare_input(
