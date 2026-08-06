@@ -28,7 +28,10 @@ from tirith_action import local  # noqa: E402
 from tirith_action.gh_client import GitHubClient, GitHubError  # noqa: E402
 from tirith_action.local import LocalError  # noqa: E402
 
-CHECK_NAME = "Tirith Policy"
+# The check-run name. Branch-protection rules match on this string, so changing it silently
+# un-gates anyone who made it a required check -- the rule waits for a check that never arrives.
+# Renamed once, deliberately, with the rebrand; treat it as a public interface from here on.
+CHECK_NAME = "Tirith IaC Governance"
 
 # Where local mode looks for policies when policy-path is not set. A convention rather than a
 # search: guessing across the whole repository would eventually evaluate something the user did not
@@ -210,7 +213,10 @@ def build_trigger_details(sha):
     pr = pull_request_number()
 
     details = {
-        "type": "github_action",
+        # Read by core to entitle the run as version-control driven rather than manual, and rendered
+        # in the dashboard's "Triggered by" column, where the title-case fallback turns it into
+        # "Tirith". Changing it means changing core's entitlement list in the same breath.
+        "type": "tirith",
         "ghEventType": env("GITHUB_EVENT_NAME"),
         "repoHttpUrl": f"{server}/{repo}",
         "headSha": sha,
@@ -494,7 +500,8 @@ def run_local(result_path, markdown_path, tag):
                 f"'{policy_path}'. Either supply credentials (with: sg-api-key / sg-org, or env: "
                 "SG_API_TOKEN / SG_ORG) to evaluate the policies enforced in your organization, or "
                 "commit policy files and point policy-path at them. "
-                "See https://github.com/StackGuardian/tirith-iac-governance-action#running-without-an-account"
+                "See https://github.com/StackGuardian/tirith-iac-governance-action"
+                "#running-without-a-stackguardian-org"
             )
 
         input_path, redactions = local.prepare_input(
@@ -551,7 +558,9 @@ def run_local(result_path, markdown_path, tag):
     write_json(result_path, result)
     write_text(
         markdown_path,
-        report.render_markdown(policy_results, "COMPLETED", None, marker=comment_marker(tag)),
+        report.render_markdown(
+            policy_results, "COMPLETED", None, marker=comment_marker(tag), commit=head_sha()
+        ),
     )
 
     log(result["headline"])

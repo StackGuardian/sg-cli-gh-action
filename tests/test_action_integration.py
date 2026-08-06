@@ -319,7 +319,7 @@ def test_trigger_details_do_not_claim_to_be_a_webhook(tmp_path, stub):
 
     body = json.loads([r for r in Stub.requests if r["path"].endswith("/wfruns/")][0]["body"])
 
-    assert body["TriggerDetails"]["type"] == "github_action"
+    assert body["TriggerDetails"]["type"] == "tirith"
     assert "commentsUrl" not in body["TriggerDetails"]
     assert "checksApiUrl" not in body["TriggerDetails"]
     assert body["TriggerDetails"]["prId"] == "7"
@@ -884,11 +884,12 @@ def test_credentials_still_select_platform_mode(tmp_path, stub):
 # --- sticky-comment stickiness -----------------------------------------------------------------
 #
 # This block exists because of a live defect. On a run that produced no report, `report()` fell back
-# to a bare `"Tirith IaC Governance"` string with no marker and PATCHed it over the good sticky
-# comment. The marker was then gone, so the comment could never be found again and every later run
-# posted a fresh one. Observed in the wild:
+# to a bare string with no marker and PATCHed it over the good sticky comment. The marker was then
+# gone, so the comment could never be found again and every later run posted a fresh one. Observed
+# in the wild -- quoted verbatim, so it stays a record of what happened rather than being rebranded
+# along with everything else:
 #
-#   id=5191457956  created 12:01:32  updated 12:03:56  body="Tirith IaC Governance"  (19 chars)
+#   id=5191457956  created 12:01:32  updated 12:03:56  body="Tirith policy check"  (19 chars)
 #
 # The suite could not have caught it: the stub always returned an empty comment list, so no PATCH
 # was ever issued in a test.
@@ -1052,3 +1053,20 @@ def test_a_dropped_source_tree_raises_a_warning_annotation(tmp_path, stub):
     # The check still ran, and the documents still went.
     assert "plan.json" in archive_members(uploaded_archive())
     assert "src/main.tf" not in archive_members(uploaded_archive())
+
+
+def test_the_comment_names_the_commit_it_scanned(tmp_path, stub):
+    """
+    The comment is edited in place, so it always shows the latest verdict and nothing else. Naming
+    the commit is what lets a reader tell whether that verdict is about the head of the branch or
+    about a push from an hour ago.
+    """
+    Stub.policy_results = {"p": [{"rule_name": "r", "result": "PASS", "evaluations": {"passes": []}}]}
+
+    run_action(tmp_path, stub)
+
+    writes = comment_writes()
+    assert writes, "no comment was posted"
+    body = writes[0][1]["body"]
+    # The harness's event payload puts the PR head sha at 9f2c1ab...; short form is what git shows.
+    assert "<sub>Scanned commit <code>9f2c1ab</code></sub>" in body, body[:400]

@@ -62,11 +62,11 @@ inputs:
     required: false
     default: "true"
   comment-tag:
-    description: "Namespaces the sticky comment and the uploaded archive. Set a distinct value per working directory so matrix jobs do not overwrite each other."
+    description: "Namespaces the sticky comment, the uploaded archive and the check-run name. Set a distinct value per working directory so matrix jobs do not overwrite each other's comment or archive."
     required: false
     default: "default"
   check:
-    description: "Create a 'Tirith Policy' check run on the head commit."
+    description: "Create a 'Tirith IaC Governance' check run on the head commit."
     required: false
     default: "true"
 
