@@ -51,7 +51,21 @@ EVALUATION_TIMEOUT = 300
 
 # `meta.enforcement` values that downgrade a failing policy to a warning. Anything unrecognised
 # fails instead -- an unlabelled or mislabelled policy must gate, not slip through.
-WARN_ENFORCEMENTS = ("soft_mandatory", "advisory", "warn", "warning", "low")
+#
+# The approval spellings warn rather than gate, matching platform mode, where a policy carrying
+# `onFail: APPROVAL_REQUIRED` also warns: the run finishes before the intent is known, so there is
+# nothing to approve. Local mode has no approval mechanism at all, so failing closed on it would
+# block a PR with no way to unblock it.
+WARN_ENFORCEMENTS = (
+    "soft_mandatory",
+    "advisory",
+    "warn",
+    "warning",
+    "low",
+    "approval_required",
+    "approval-required",
+    "approval",
+)
 
 
 def tirith_modules():
