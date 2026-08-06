@@ -5,10 +5,10 @@ Both are posted from the runner with ${{ github.token }}, so no GitHub credentia
 StackGuardian.
 
 Note the platform can also post a comment and a check of its own, from sg-run-controller. That
-path is gated on `TriggerDetails.type == "github_webhook"`; our runs set `github_action`, so it
-does not fire. That gate is load-bearing -- see the README. The check created here is named
-`Tirith Policy`, distinct from the platform's `StackGuardian Workflow Run`, so the two can coexist
-if a repo ever uses both.
+path is gated on `TriggerDetails.type == "github_webhook"`; our runs set `tirith`, so it does not
+fire. That gate is load-bearing -- see the README. The check created here is named
+`Tirith IaC Governance`, distinct from the platform's `StackGuardian Workflow Run`, so the two can
+coexist if a repo ever uses both.
 """
 
 import json

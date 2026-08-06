@@ -23,7 +23,7 @@ on:
 permissions:
   contents: read
   pull-requests: write   # the sticky comment
-  checks: write          # the "Tirith Policy" check run
+  checks: write          # the "Tirith IaC Governance" check run
   id-token: write        # your cloud auth, if you use OIDC
 
 env:

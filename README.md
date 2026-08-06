@@ -47,7 +47,7 @@ SSO-group-only users.
 
 Omit the credentials and the action evaluates policy files from your repository instead, on the
 runner, talking to nothing. Everything you see on the pull request is the same — the same sticky
-comment, the same `Tirith Policy` check run, the same outputs and exit codes:
+comment, the same `Tirith IaC Governance` check run, the same outputs and exit codes:
 
 ```yaml
 steps:
@@ -65,8 +65,7 @@ must not report green.
 | | with credentials | without |
 |---|---|---|
 | Where policies come from | StackGuardian, by `EnforcedOn` scope | files in your repository |
-| Where evaluation happens | a StackGuardian workflow run | your github runner |
-
+| Where evaluation happens | a StackGuardian workflow run | your GitHub runner |
 | Run history, dashboard, `wfrun-url` | yes | no |
 | Org-wide enforcement, drift checks, approvals | yes | no |
 | Centralized governance | yes | no |
@@ -99,7 +98,7 @@ to have a failure warn instead of block. Anything unrecognised there blocks.
    `.git`, `.terraform`, `*.tfstate*` and anything in `.gitignore`.
 3. **Uploads** it and creates a StackGuardian workflow run, which evaluates the policies your
    organization has scoped to that workflow.
-4. **Reports** the verdict: a sticky pull-request comment, a `Tirith Policy` check run, the job
+4. **Reports** the verdict: a sticky pull-request comment, a `Tirith IaC Governance` check run, the job
    summary, and action outputs.
 
 With credentials, policies live in StackGuardian and are selected server-side by their `EnforcedOn`
@@ -269,6 +268,13 @@ steps:
 Both are load-bearing. Runs on a single StackGuardian workflow serialize while one is pending, so
 without a distinct `workflow-id` a 20-leg matrix becomes a 20-deep queue. And the sticky comment is
 found by a marker containing the tag, so shared tags mean the legs overwrite each other's comment.
+
+## Upgrading
+
+> **The check run was renamed** to `Tirith IaC Governance` (it was `Tirith Policy`). If you made it a
+> **required status check** in branch protection, update the rule — a rule still naming `Tirith Policy`
+> waits for a check that no longer arrives, so those pull requests stay blocked and are never gated by
+> the new one. Nothing else about the check changed.
 
 ## Migrating from the sg-cli action
 
