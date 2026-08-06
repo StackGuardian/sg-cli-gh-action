@@ -1,6 +1,6 @@
-# Tirith Policy Check
+# Tirith IaC Governance
 
-Evaluate your StackGuardian policies against a terraform plan in CI, and report the outcome as a
+Evaluate Tirith policies against a terraform plan in CI, and report the outcome as a
 pull-request comment and a check run.
 
 ```yaml
@@ -18,7 +18,7 @@ steps:
       terraform plan -out=tfplan -input=false
       terraform show -json tfplan > plan.json
 
-  - uses: StackGuardian/sg-cli-gh-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2
 ```
 
 That is the whole integration. With `plan.json` in the working directory the action needs no
@@ -28,7 +28,7 @@ repository and workflow filename, and defaults to the `eu` region.
 Everything below is for when you want something other than the defaults:
 
 ```yaml
-  - uses: StackGuardian/sg-cli-gh-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2
     with:
       sg-region: us            # eu (default) or us
       input-path: out/plan.json
@@ -43,7 +43,7 @@ Everything below is for when you want something other than the defaults:
 empty. The key must be an **organization** (`sgo_`) token: `sgu_` tokens are non-functional for
 SSO-group-only users.
 
-## Running without an account
+## Running without a StackGuardian org
 
 Omit the credentials and the action evaluates policy files from your repository instead, on the
 runner, talking to nothing. Everything you see on the pull request is the same — the same sticky
@@ -52,7 +52,7 @@ comment, the same `Tirith Policy` check run, the same outputs and exit codes:
 ```yaml
 steps:
   - run: terraform show -json tfplan > plan.json
-  - uses: StackGuardian/sg-cli-gh-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2
 ```
 
 with a policy committed at `.tirith/policies/no-public-ingress.tirith.json`. `policy-path` also
@@ -65,10 +65,16 @@ must not report green.
 | | with credentials | without |
 |---|---|---|
 | Where policies come from | StackGuardian, by `EnforcedOn` scope | files in your repository |
-| Where evaluation happens | a StackGuardian workflow run | the runner |
+| Where evaluation happens | a StackGuardian workflow run | your github runner |
+
 | Run history, dashboard, `wfrun-url` | yes | no |
-| Org-wide enforcement, drift, approvals | yes | no |
-| Comment, check run, exit codes | identical | identical |
+| Org-wide enforcement, drift checks, approvals | yes | no |
+| Centralized governance | yes | no |
+| Dashboards | yes | no |
+| Remediation and auto-fix PRs | yes | no |
+| Detailed audit trail | yes | no |
+| Disaster Recovery | yes | no |
+| Visualize plan with diff | yes | no |
 
 A local run is still masked before anything is rendered. Nothing is uploaded, but evaluator messages
 quote the values they compared and those messages go into the pull-request comment — so masking is
@@ -99,7 +105,7 @@ to have a failure warn instead of block. Anything unrecognised there blocks.
 With credentials, policies live in StackGuardian and are selected server-side by their `EnforcedOn`
 scope: there are no policy files in your repository and nothing is evaluated on the runner. Without
 them, steps 2 and 3 are replaced by a local evaluation — see
-[Running without an account](#running-without-an-account).
+[Running without a StackGuardian org](#running-without-a-stackguardian-org).
 
 ### Getting your policies to apply
 
@@ -139,7 +145,7 @@ alongside them; that is what makes automated fixes and run reproduction possible
 `source-dir` defaults to the working directory. Point it at a subdirectory to send less:
 
 ```yaml
-- uses: StackGuardian/sg-cli-gh-action@v2
+- uses: StackGuardian/tirith-iac-governance-action@v2
   with:
     source-dir: envs/prod
 ```
@@ -250,7 +256,7 @@ strategy:
   matrix:
     stack: [dev, prod]
 steps:
-  - uses: StackGuardian/sg-cli-gh-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2
     with:
       sg-api-key: ${{ secrets.SG_API_TOKEN }}
       sg-org: ${{ vars.SG_ORG }}
@@ -266,15 +272,14 @@ found by a marker containing the tag, so shared tags mean the legs overwrite eac
 
 ## Migrating from the sg-cli action
 
-Version 1 of this action was a thin `sg-cli` passthrough with a single `operation` input. It is
-unrelated to what this action does now. Pin `@v1.0.0-beta` to keep the old behaviour; there is no
+Version 1 of this action was a thin `sg-cli` passthrough with a single `operation` input. It has
+evolved into what this action does now. Pin `@v1.0.0-beta` to keep the old behaviour; there is no
 automatic migration.
 
 ## Where the code lives
 
-The action is a wrapper. Everything that talks to StackGuardian is `tirith platform check` in
-[StackGuardian/tirith](https://github.com/StackGuardian/tirith) — so the same behaviour is
-available from GitLab, a Makefile or a laptop:
+The action is a wrapper of Tirith which is maintained in
+[tirith](https://github.com/StackGuardian/tirith). You can also run this using the following from GitLab, a Makefile, local etc.:
 
 ```
 tirith platform check --org acme --workflow-id infra --input-path plan.json --fail-on-error

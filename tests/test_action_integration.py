@@ -884,11 +884,11 @@ def test_credentials_still_select_platform_mode(tmp_path, stub):
 # --- sticky-comment stickiness -----------------------------------------------------------------
 #
 # This block exists because of a live defect. On a run that produced no report, `report()` fell back
-# to a bare `"Tirith policy check"` string with no marker and PATCHed it over the good sticky
+# to a bare `"Tirith IaC Governance"` string with no marker and PATCHed it over the good sticky
 # comment. The marker was then gone, so the comment could never be found again and every later run
 # posted a fresh one. Observed in the wild:
 #
-#   id=5191457956  created 12:01:32  updated 12:03:56  body="Tirith policy check"  (19 chars)
+#   id=5191457956  created 12:01:32  updated 12:03:56  body="Tirith IaC Governance"  (19 chars)
 #
 # The suite could not have caught it: the stub always returned an empty comment list, so no PATCH
 # was ever issued in a test.
@@ -1013,7 +1013,7 @@ def test_a_local_run_with_nothing_to_evaluate_keeps_the_comment_findable(tmp_pat
     assert [m for m, _ in writes] == ["PATCH"], writes
     body = writes[0][1]["body"]
     assert body.startswith(MARKER), body[:200]
-    # And it says what to do about it, rather than just "Tirith policy check".
+    # And it says what to do about it, rather than just "Tirith IaC Governance".
     assert "policy-path" in body or "credentials" in body
 
 

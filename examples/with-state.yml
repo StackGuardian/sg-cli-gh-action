@@ -31,7 +31,7 @@ jobs:
           terraform show -json tfplan > plan.json
 
       - name: Gate the plan
-        uses: StackGuardian/sg-cli-gh-action@v2
+        uses: StackGuardian/tirith-iac-governance-action@v2
         with:
           sg-api-key: ${{ secrets.SG_API_TOKEN }}
           sg-org: ${{ vars.SG_ORG }}
@@ -44,7 +44,7 @@ jobs:
       - run: terraform state pull > state.json
 
       - name: Check the applied state
-        uses: StackGuardian/sg-cli-gh-action@v2
+        uses: StackGuardian/tirith-iac-governance-action@v2
         with:
           sg-api-key: ${{ secrets.SG_API_TOKEN }}
           sg-org: ${{ vars.SG_ORG }}

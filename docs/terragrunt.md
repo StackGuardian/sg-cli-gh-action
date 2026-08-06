@@ -96,7 +96,7 @@ jobs:
       - run: terragrunt show -json tfplan > plan.json
         working-directory: ${{ matrix.unit }}
 
-      - uses: StackGuardian/sg-cli-gh-action@v2
+      - uses: StackGuardian/tirith-iac-governance-action@v2
         with:
           sg-api-key: ${{ secrets.SG_API_TOKEN }}
           sg-org: ${{ vars.SG_ORG }}
@@ -134,7 +134,7 @@ rewrite. Supply something already slug-shaped if you want it predictable.
 Turn commenting off per leg, collect the `results` outputs, and post once.
 
 ```yaml
-      - uses: StackGuardian/sg-cli-gh-action@v2
+      - uses: StackGuardian/tirith-iac-governance-action@v2
         id: tirith
         with:
           # ... as above ...
@@ -153,7 +153,7 @@ Turn commenting off per leg, collect the `results` outputs, and post once.
     steps:
       - uses: actions/download-artifact@v4
         with: { pattern: 'tirith-*', merge-multiple: true, path: results }
-      - uses: StackGuardian/sg-cli-gh-action/comment@v2
+      - uses: StackGuardian/tirith-iac-governance-action/comment@v2
         with:
           results-glob: 'results/*.json'
           group-by: unit
@@ -190,7 +190,7 @@ Rough shape of the aggregated comment:
 Let one invocation accept many documents:
 
 ```yaml
-- uses: StackGuardian/sg-cli-gh-action@v2
+- uses: StackGuardian/tirith-iac-governance-action@v2
   with:
     input-glob: 'live/**/plan.json'
     unit-from-path: 'live/(?<unit>.+)/plan.json'
@@ -210,7 +210,7 @@ Same rule as the single-module case, once per unit, after apply:
 ```yaml
 - run: terragrunt state pull > state.json     # NOT terraform.tfstate -- see below
   working-directory: ${{ matrix.unit }}
-- uses: StackGuardian/sg-cli-gh-action@v2
+- uses: StackGuardian/tirith-iac-governance-action@v2
   with:
     input-path: ${{ matrix.unit }}/state.json
     input-kind: terraform_state               # masks before upload
