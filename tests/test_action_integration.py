@@ -305,8 +305,10 @@ def test_run_is_created_with_the_archive_and_no_step_config(tmp_path, stub):
     assert len(created) == 1
 
     body = json.loads(created[0]["body"])
-    assert body["TerraformAction"] == {"action": "tirith-check"}
-    assert body["terraformProjectZip"] == "orgs/acme/wf/a.tar.gz"
+    assert body["TerraformAction"] == {"action": "tirith-iac-governance"}
+    # A context tag, not a run field: `terraformProjectZip` belongs to the CLI-driven workflow.
+    assert body["ContextTags"] == {"codeZipWfArtifactPath": "orgs/acme/wf/a.tar.gz"}
+    assert "terraformProjectZip" not in body
     assert "WfStepsConfig" not in body, "core ignores it for TERRAFORM workflows"
 
 
