@@ -104,7 +104,7 @@ outputs:
     description: "Which path ran: `platform` (policies from StackGuardian) or `local` (policy files from this repository)."
     value: ${{ steps.tirith.outputs.mode }}
   verdict:
-    description: "One of: passed, warned, failed, errored, no-policies, approval-required."
+    description: "One of: passed, warned, failed, errored, no-policies."
     value: ${{ steps.tirith.outputs.verdict }}
   passed:
     description: "Number of policy rules that passed."

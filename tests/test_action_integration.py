@@ -306,9 +306,11 @@ def test_run_is_created_with_the_archive_and_no_step_config(tmp_path, stub):
 
     body = json.loads(created[0]["body"])
     assert body["TerraformAction"] == {"action": "tirith-iac-governance"}
-    # A context tag, not a run field: `terraformProjectZip` belongs to the CLI-driven workflow.
-    assert body["ContextTags"] == {"codeZipWfArtifactPath": "orgs/acme/wf/a.tar.gz"}
+    # Its own field: `terraformProjectZip` belongs to the CLI-driven workflow, and a context tag
+    # would put an internal storage key into global search.
+    assert body["CodeZipWfArtifactPath"] == "orgs/acme/wf/a.tar.gz"
     assert "terraformProjectZip" not in body
+    assert "ContextTags" not in body
     assert "WfStepsConfig" not in body, "core ignores it for TERRAFORM workflows"
 
 
@@ -818,6 +820,24 @@ def test_soft_mandatory_failure_warns_instead_of_failing(tmp_path):
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert outputs["verdict"] == "warned"
     assert outputs["warned"] == "1"
+
+
+def test_a_policy_asking_for_approval_warns_rather_than_gating(tmp_path):
+    """
+    Matches platform mode, where `onFail: APPROVAL_REQUIRED` also warns. Local mode has no approval
+    mechanism at all, so gating on it would block a PR with no way to unblock it -- and before this
+    the value was unrecognised, which failed closed for exactly that reason.
+    """
+    completed, outputs, _ = run_local(
+        tmp_path,
+        policies=(("gated.tirith.json", failing_policy(enforcement="approval_required")),),
+        INPUT_FAIL_ON_ERROR="true",
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert outputs["verdict"] == "warned"
+    assert outputs["warned"] == "1"
+    assert "Unrecognised meta.enforcement" not in completed.stdout
 
 
 def test_an_unrecognised_enforcement_still_gates(tmp_path):

@@ -218,9 +218,14 @@ be data loss. Policy evaluation is unaffected either way.
 
 ## Outputs
 
-`verdict` (`passed` \| `warned` \| `failed` \| `errored` \| `no-policies` \| `approval-required`),
+`verdict` (`passed` \| `warned` \| `failed` \| `errored` \| `no-policies`),
 `mode` (`platform` \| `local`), `passed`, `failed`, `warned`, `results`, `results-file`, `wfrun-id`,
 `wfrun-url`, `comment-id`.
+
+A policy that asks for approval (`onFail: APPROVAL_REQUIRED`, or `meta.enforcement:
+approval_required` locally) reports as `warned` and does not block. The evaluation has already
+finished by the time the intent is known, so there is nothing to approve; the comment still says how
+many rules asked for one.
 
 `wfrun-id` and `wfrun-url` are unset in local mode: no run was recorded, and a link to one that does
 not exist would be worse than none.

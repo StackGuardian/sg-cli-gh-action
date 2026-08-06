@@ -291,9 +291,10 @@ def check_conclusion(verdict):
         # scoped to the wrong workflow group -- but it must not block either, and `neutral`
         # satisfies a required check just as `success` does.
         "no-policies": "neutral",
+        # Warnings include policies whose author asked for an approval. Those do not gate: the run
+        # has already finished by the time the intent is known, so there is nothing to approve.
+        # See tirith's report.verdict for what a real gate would require.
         "warned": "neutral",
-        # A human has to act; `action_required` says exactly that and does not satisfy the check.
-        "approval-required": "action_required",
         "failed": "failure",
         "errored": "failure",
     }.get(verdict, "failure")
