@@ -1116,12 +1116,20 @@ def test_a_second_invocation_never_reports_the_first_ones_verdict(tmp_path, stub
     assert (scratch / "tirith-result-default.json").exists()
 
     # Second invocation, same job, pointed at a port nothing is listening on.
+    Stub.requests = []
     completed = run_action(
         tmp_path, stub, RUNNER_TEMP=str(scratch), INPUT_SG_API_URL="http://127.0.0.1:1/api/v1", INPUT_TIMEOUT="5"
     )[0]
 
     assert completed.returncode == EXIT_TOOL_FAILURE, completed.stdout + completed.stderr
-    assert "verdict=passed" not in completed.stdout
+    # The symptom, and the only assertion here that fails without the fix: the exit code was already
+    # 1 pre-fix, and `verdict=` goes to $GITHUB_OUTPUT rather than stdout, so neither could catch it.
+    conclusions = [
+        json.loads(r["body"])["conclusion"]
+        for r in Stub.requests
+        if r["method"] == "POST" and "check-runs" in r["path"]
+    ]
+    assert conclusions == ["failure"], f"a run that evaluated nothing reported {conclusions}"
 
 
 def test_the_scratch_documents_are_namespaced_by_tag(tmp_path, stub):
@@ -1151,58 +1159,38 @@ def test_half_a_credential_fails_rather_than_evaluating_local_policies(tmp_path,
 def test_local_mode_evaluates_the_state_it_was_given(tmp_path):
     """
     state-path is how the platform path is told which document to evaluate for a terraform_state
-    check. Local mode ignored it and fell through to discovery, which finds plan.json -- so the two
-    modes evaluated different documents from identical inputs, and a violation present only in the
-    state was reported as a pass.
-    """
-    workdir = tmp_path / "repo"
-    (workdir / ".tirith" / "policies").mkdir(parents=True)
-    (workdir / "plan.json").write_text(json.dumps(local_plan()))
-    (workdir / "state.json").write_text(
-        json.dumps(
-            {
-                "format_version": "1.0",
-                "values": {"root_module": {"resources": [{"type": "aws_instance", "values": {"instance_type": "m5.24xlarge"}}]}},
-            }
-        )
-    )
-    (workdir / ".tirith" / "policies" / "size.tirith.json").write_text(
-        json.dumps(
-            {
-                "meta": {"required_provider": "stackguardian/terraform_state", "version": "v1"},
-                "evaluators": [
-                    {
-                        "id": "no-huge",
-                        "provider_args": {
-                            "operation_type": "attribute",
-                            "terraform_resource_type": "aws_instance",
-                            "terraform_resource_attribute": "instance_type",
-                        },
-                        "condition": {"type": "NotEquals", "value": "m5.24xlarge"},
-                    }
-                ],
-                "eval_expression": "no-huge",
-            }
-        )
-    )
+    check (cli.py passes it as --state-path). Local mode ignored it and fell through to discovery,
+    which finds plan.json -- so the two modes evaluated DIFFERENT documents from identical inputs,
+    and a violation present only in the state was reported as a pass.
 
+    Asserted on the document that actually gets masked and handed to the evaluator, rather than on
+    an exit code: an earlier version of this test used the exit code and passed with the fix
+    reverted, because the plan-shaped document failed the state policy for an unrelated reason.
+    """
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+    from tirith_action import local
+
+    workdir = tmp_path / "repo"
+    workdir.mkdir()
+    (workdir / "plan.json").write_text(json.dumps({"format_version": "1.0", "values": {"from": "the-plan"}}))
+    (workdir / "state.json").write_text(
+        json.dumps({"version": 4, "lineage": "x", "resources": [], "values": {"from": "the-state"}})
+    )
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "HOME": os.environ.get("HOME", ""),
-        "RUNNER_TEMP": str(scratch),
-        "GITHUB_OUTPUT": str(tmp_path / "outputs.txt"),
-        "INPUT_INPUT_KIND": "terraform_state",
-        "INPUT_STATE_PATH": str(workdir / "state.json"),
-        "INPUT_FAIL_ON_ERROR": "true",
-    }
-    completed = subprocess.run(
-        [sys.executable, ACTION], env=env, cwd=str(workdir), capture_output=True, text=True
+
+    masked_path, _redactions = local.prepare_input(
+        input_path=None,
+        plan_file=None,
+        terraform_bin=None,
+        input_kind="terraform_state",
+        source_dir=str(workdir),
+        scratch=str(scratch),
+        state_path=str(workdir / "state.json"),
     )
 
-    # The state violates the policy; the plan does not. Reading the plan instead reported a pass.
-    assert completed.returncode == EXIT_POLICY_FAILED, completed.stdout + completed.stderr
+    evaluated = json.loads(open(masked_path).read())
+    assert evaluated.get("values", {}).get("from") == "the-state", "the plan was evaluated instead of the state"
 
 
 def test_a_correctly_labelled_blocking_policy_raises_no_unrecognised_warning(tmp_path):
