@@ -26,6 +26,10 @@ import pytest
 ACTION = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "main.py")
 SECRET = "hunter2-must-not-reach-the-platform"
 
+# Mirrors scripts/main.py, so a test names the code rather than the number.
+EXIT_TOOL_FAILURE = 1
+EXIT_POLICY_FAILED = 3
+
 pytestmark = pytest.mark.skipif(shutil.which("tirith") is None, reason="tirith is not installed")
 
 
@@ -728,7 +732,7 @@ def test_no_credentials_evaluates_local_policies(tmp_path):
     # Inference is silent by design, so the log has to say which mode ran.
     assert "evaluated locally" in completed.stdout
 
-    body = (scratch / "tirith-comment.md").read_text()
+    body = (scratch / "tirith-comment-default.md").read_text()
     assert "instance-type-allowed" in body
     # No run was created, so there is nothing to link to.
     assert "View run in StackGuardian" not in body
@@ -791,7 +795,7 @@ def test_an_unevaluable_policy_is_red_regardless_of_fail_on_error(tmp_path):
     )
 
     assert completed.returncode == 1, completed.stdout + completed.stderr
-    body = (scratch / "tirith-comment.md").read_text()
+    body = (scratch / "tirith-comment-default.md").read_text()
     # Surfaced as an engine problem rather than a policy violation, so it cannot be mistaken for one.
     assert "engine:" in body
 
@@ -870,10 +874,10 @@ def test_local_mode_masks_before_rendering(tmp_path):
 
     completed, _, scratch = run_local(tmp_path, policies=(("content.tirith.json", policy),))
 
-    body = (scratch / "tirith-comment.md").read_text()
+    body = (scratch / "tirith-comment-default.md").read_text()
     assert SECRET not in body, body
     assert "__SG_REDACTED__" in body
-    assert SECRET not in (scratch / "tirith-result.json").read_text()
+    assert SECRET not in (scratch / "tirith-result-default.json").read_text()
 
 
 def test_reporting_is_skipped_and_said_out_loud_without_a_token(tmp_path):
@@ -1092,3 +1096,123 @@ def test_the_comment_names_the_commit_it_scanned(tmp_path, stub):
     body = writes[0][1]["body"]
     # The harness's event payload puts the PR head sha at 9f2c1ab...; short form is what git shows.
     assert "<sub>Scanned commit <code>9f2c1ab</code></sub>" in body, body[:400]
+
+
+# --- ways a run that evaluated nothing could still look like a pass -------------------------------
+
+
+def test_a_second_invocation_never_reports_the_first_ones_verdict(tmp_path, stub):
+    """
+    The scratch documents were fixed paths in RUNNER_TEMP, shared by every invocation in a job and
+    never cleared. An invocation that produced no verdict -- the platform unreachable, the CLI dying
+    before it writes -- read whichever document was left behind and reported ITS verdict, including
+    `conclusion: success` on the check a branch-protection rule gates on.
+    """
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(exist_ok=True)
+
+    completed, _ = run_action(tmp_path, stub, RUNNER_TEMP=str(scratch))
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert (scratch / "tirith-result-default.json").exists()
+
+    # Second invocation, same job, pointed at a port nothing is listening on.
+    completed = run_action(
+        tmp_path, stub, RUNNER_TEMP=str(scratch), INPUT_SG_API_URL="http://127.0.0.1:1/api/v1", INPUT_TIMEOUT="5"
+    )[0]
+
+    assert completed.returncode == EXIT_TOOL_FAILURE, completed.stdout + completed.stderr
+    assert "verdict=passed" not in completed.stdout
+
+
+def test_the_scratch_documents_are_namespaced_by_tag(tmp_path, stub):
+    """Two legs of a matrix in one job share RUNNER_TEMP; neither may read the other's document."""
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(exist_ok=True)
+
+    run_action(tmp_path, stub, RUNNER_TEMP=str(scratch), INPUT_COMMENT_TAG="envs-prod")
+
+    assert (scratch / "tirith-result-envs-prod.json").exists()
+    assert not (scratch / "tirith-result-default.json").exists()
+
+
+def test_half_a_credential_fails_rather_than_evaluating_local_policies(tmp_path, stub):
+    """
+    A typo'd `vars.SG_ORG` resolves to empty. Treating that as "no credentials" evaluated whatever
+    policy files happen to be in the repository, exited 0 and reported a green check -- while the
+    organization's enforced policies were never consulted.
+    """
+    completed, _ = run_action(tmp_path, stub, INPUT_SG_ORG="", INPUT_FAIL_ON_ERROR="false")
+
+    assert completed.returncode == EXIT_TOOL_FAILURE, completed.stdout + completed.stderr
+    assert "sg-org" in completed.stdout
+    assert "::notice::No StackGuardian credentials found" not in completed.stdout
+
+
+def test_local_mode_evaluates_the_state_it_was_given(tmp_path):
+    """
+    state-path is how the platform path is told which document to evaluate for a terraform_state
+    check. Local mode ignored it and fell through to discovery, which finds plan.json -- so the two
+    modes evaluated different documents from identical inputs, and a violation present only in the
+    state was reported as a pass.
+    """
+    workdir = tmp_path / "repo"
+    (workdir / ".tirith" / "policies").mkdir(parents=True)
+    (workdir / "plan.json").write_text(json.dumps(local_plan()))
+    (workdir / "state.json").write_text(
+        json.dumps(
+            {
+                "format_version": "1.0",
+                "values": {"root_module": {"resources": [{"type": "aws_instance", "values": {"instance_type": "m5.24xlarge"}}]}},
+            }
+        )
+    )
+    (workdir / ".tirith" / "policies" / "size.tirith.json").write_text(
+        json.dumps(
+            {
+                "meta": {"required_provider": "stackguardian/terraform_state", "version": "v1"},
+                "evaluators": [
+                    {
+                        "id": "no-huge",
+                        "provider_args": {
+                            "operation_type": "attribute",
+                            "terraform_resource_type": "aws_instance",
+                            "terraform_resource_attribute": "instance_type",
+                        },
+                        "condition": {"type": "NotEquals", "value": "m5.24xlarge"},
+                    }
+                ],
+                "eval_expression": "no-huge",
+            }
+        )
+    )
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "RUNNER_TEMP": str(scratch),
+        "GITHUB_OUTPUT": str(tmp_path / "outputs.txt"),
+        "INPUT_INPUT_KIND": "terraform_state",
+        "INPUT_STATE_PATH": str(workdir / "state.json"),
+        "INPUT_FAIL_ON_ERROR": "true",
+    }
+    completed = subprocess.run(
+        [sys.executable, ACTION], env=env, cwd=str(workdir), capture_output=True, text=True
+    )
+
+    # The state violates the policy; the plan does not. Reading the plan instead reported a pass.
+    assert completed.returncode == EXIT_POLICY_FAILED, completed.stdout + completed.stderr
+
+
+def test_a_correctly_labelled_blocking_policy_raises_no_unrecognised_warning(tmp_path):
+    """`hard_mandatory` is what tirith's own golden test pins, so this fired on every failing run."""
+    completed, outputs, _ = run_local(
+        tmp_path,
+        policies=(("blocking.tirith.json", failing_policy(enforcement="hard_mandatory")),),
+        INPUT_FAIL_ON_ERROR="true",
+    )
+
+    assert completed.returncode == 3, completed.stdout + completed.stderr
+    assert outputs["verdict"] == "failed"
+    assert "Unrecognised meta.enforcement" not in completed.stdout

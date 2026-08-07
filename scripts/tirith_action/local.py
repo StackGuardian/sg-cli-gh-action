@@ -67,6 +67,11 @@ WARN_ENFORCEMENTS = (
     "approval",
 )
 
+# Recognised, and gate. Listed rather than left to the `else` so a correctly-labelled blocking
+# policy does not raise the "unrecognised enforcement" annotation on every run it fails --
+# `hard_mandatory` is what tirith's own golden test pins, so that fired constantly.
+FAIL_ENFORCEMENTS = ("hard_mandatory", "mandatory", "fail", "error", "high", "critical", "blocking")
+
 
 def tirith_modules():
     """
@@ -141,7 +146,7 @@ def read_json(path, label):
         raise LocalError(f"Could not read {label} ({path}): {e}")
 
 
-def prepare_input(input_path, plan_file, terraform_bin, input_kind, source_dir, scratch):
+def prepare_input(input_path, plan_file, terraform_bin, input_kind, source_dir, scratch, state_path=None):
     """
     Resolve the document to evaluate and mask it, returning (path, redaction_count).
 
@@ -165,6 +170,13 @@ def prepare_input(input_path, plan_file, terraform_bin, input_kind, source_dir, 
 
     if input_path and plan_file:
         raise LocalError("input-path and plan-file cannot be combined; pass one of them.")
+
+    # `state-path` is how the platform path is told which document to evaluate for a
+    # terraform_state check (cli.py passes it through as --state-path). Ignoring it here sent local
+    # mode to discovery, which finds plan.json -- so the two modes evaluated *different documents*
+    # from identical inputs, and a violation present only in the state was reported as a pass.
+    if input_kind == "terraform_state" and not input_path and not plan_file and state_path:
+        input_path = state_path
 
     if plan_file:
         try:
@@ -294,8 +306,11 @@ def _failure_result(document, report, on_unknown_enforcement):
     enforcement = (document.get("meta") or {}).get("enforcement")
     if enforcement is None:
         return report.FAIL
-    if str(enforcement).strip().lower() in WARN_ENFORCEMENTS:
+    normalised = str(enforcement).strip().lower()
+    if normalised in WARN_ENFORCEMENTS:
         return report.WARN
+    if normalised in FAIL_ENFORCEMENTS:
+        return report.FAIL
     on_unknown_enforcement(str(enforcement))
     return report.FAIL
 
