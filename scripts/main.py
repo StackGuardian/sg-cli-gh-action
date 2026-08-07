@@ -505,6 +505,15 @@ def run_local(result_path, markdown_path, tag):
                 "#running-without-a-stackguardian-org"
             )
 
+        if env("INPUT_INFRACOST_PATH"):
+            # Cost policies need the platform: local mode evaluates one document, and infracost
+            # output is a second one. Saying so beats evaluating the plan and reporting a cost
+            # policy as unevaluated with no explanation.
+            warn(
+                "infracost-path is ignored in local mode, which evaluates a single document. "
+                "Cost policies need sg-api-key/sg-org."
+            )
+
         input_path, redactions = local.prepare_input(
             env("INPUT_INPUT_PATH"),
             env("INPUT_PLAN_FILE"),
@@ -512,6 +521,7 @@ def run_local(result_path, markdown_path, tag):
             env("INPUT_INPUT_KIND", "terraform_plan"),
             env("INPUT_SOURCE_DIR"),
             scratch,
+            state_path=env("INPUT_STATE_PATH"),
         )
         if redactions:
             log(f"Masked {redactions} sensitive value(s) before evaluating")
@@ -578,19 +588,67 @@ def run_local(result_path, markdown_path, tag):
 def main():
     api_key = resolve_api_key()
     org = resolve_org()
-    mode = "platform" if (api_key and org) else "local"
     tag = env("INPUT_COMMENT_TAG", "default")
+
+    # One credential without the other is a mistake, not a request for local mode. A typo'd
+    # `vars.SG_ORG` resolves to empty, and treating that as "no credentials" evaluated whatever
+    # policies happen to be in the repository, exited 0 and reported a green check -- while the
+    # organization's enforced policies, the ones the user is relying on, were never consulted.
+    # Local mode is for having neither.
+    partial_credentials = bool(api_key) != bool(org)
+
+    mode = "platform" if (api_key and org) else "local"
 
     # Written to RUNNER_TEMP, never the working directory. source-dir defaults to "." and the
     # archive packs it, so a scratch file next to the terraform lands in the upload -- verified in
     # QA, where tirith-trigger.json shipped to the platform. RUNNER_TEMP is job-scoped, so
     # results-file stays readable by later steps.
+    #
+    # Namespaced by tag, because a job may invoke this action more than once and RUNNER_TEMP is
+    # shared across all of them.
     scratch = env("RUNNER_TEMP") or tempfile.gettempdir()
-    result_path = os.path.join(scratch, "tirith-result.json")
-    markdown_path = os.path.join(scratch, "tirith-comment.md")
-    trigger_path = os.path.join(scratch, "tirith-trigger.json")
+    slug = _slug(tag) or "default"
+    result_path = os.path.join(scratch, f"tirith-result-{slug}.json")
+    markdown_path = os.path.join(scratch, f"tirith-comment-{slug}.md")
+    trigger_path = os.path.join(scratch, f"tirith-trigger-{slug}.json")
+
+    # Cleared before the run, not just namespaced. Both together are what closes it: an invocation
+    # that produces no verdict -- the platform unreachable, the CLI dying before it writes -- would
+    # otherwise read whichever document was left behind and report ITS verdict. With two invocations
+    # in one job (the shape examples/with-state.yml ships) that meant the second reporting the
+    # first's pass, including `conclusion: success` on a check a branch-protection rule gates on.
+    for stale in (result_path, markdown_path, trigger_path):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
 
     set_output("mode", mode)
+
+    # One credential without the other is a mistake, not a request for local mode. A typo'd
+    # `vars.SG_ORG` resolves to empty, and treating that as "no credentials" evaluated whatever
+    # policies happen to be in the repository, exited 0 and reported a green check -- while the
+    # organization's enforced policies, the ones the user is actually relying on, were never
+    # consulted. Local mode is for having neither.
+    if partial_credentials:
+        supplied, missing = ("sg-api-key", "sg-org (or SG_ORG)") if api_key else ("sg-org", "sg-api-key (or SG_API_TOKEN)")
+        headline = f"Tirith could not evaluate policies — {missing} is missing"
+        detail = (
+            f"`{supplied}` was supplied without it, so this cannot reach StackGuardian. Evaluating "
+            f"only the policy files in this repository instead would report a result without ever "
+            f"consulting the policies your organization enforces, so this fails instead. Supply "
+            f"both to use the platform, or neither to evaluate local policy files deliberately."
+        )
+        fail(f"{missing} is missing; {supplied} was supplied without it")
+        write_json(
+            result_path,
+            {"status": "ERRORED", "verdict": "errored", "counts": {}, "headline": headline,
+             "policy_results": {}, "mode": mode},
+        )
+        write_text(markdown_path, failure_comment(tag, headline, detail))
+        report({"verdict": "errored", "headline": headline}, markdown_path, tag, head_sha(),
+               env_bool("INPUT_COMMENT", True), env_bool("INPUT_CHECK", True))
+        return EXIT_TOOL_FAILURE
 
     if mode == "platform":
         cmd, workflow_id, sha = build_command(result_path, markdown_path, trigger_path, tag)
