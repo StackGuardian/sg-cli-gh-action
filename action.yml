@@ -88,7 +88,7 @@ inputs:
     required: false
     default: "default"
   step-template-id:
-    description: "Override the StackGuardian terraform step template. Omit to use the platform's own default."
+    description: "Override the StackGuardian policy-evaluation step template. Omit to use the platform's own default."
     required: false
   tirith-version:
     description: "Git ref of py-tirith to install. TEMPORARY default: a branch, until StackGuardian/tirith is tagged 1.2.0. Set this back to a tag before release -- a moving ref means a green pipeline can turn red with nothing in the repository changing."
