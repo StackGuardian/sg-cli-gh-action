@@ -202,6 +202,8 @@ be data loss. Policy evaluation is unaffected either way.
 
 Every input is optional — the action runs with an empty `with:` block.
 
+The version of `py-tirith` is **not** an input: it is fixed by the action and released with it, so a given action ref always runs one known CLI.
+
 | Input | Default | |
 |---|---|---|
 | `sg-api-key` | `$SG_API_TOKEN` | Organization (`sgo_`) token. Omit for local mode |
@@ -222,7 +224,6 @@ Every input is optional — the action runs with an empty `with:` block.
 | `workflow-group` | `default` | Workflow group. Policies are scoped per group |
 | `terraform-version` | | Recorded on the workflow at creation |
 | `step-template-id` | platform default | Override the terraform step template |
-| `tirith-version` | `feat/gate-capable-engine` | Git ref of py-tirith. **A branch, not a pin** — a run can change behaviour with nothing in your repository changing. Pass a tag if you need reproducibility; the default becomes one at release |
 | `terraform-bin` | auto | Binary for `plan-file`. Prefers the real one over the CI wrapper |
 | `github-token` | `${{ github.token }}` | Used only to post the comment and check run. Never sent to StackGuardian. Set to `""` to skip reporting entirely |
 | `sg-api-url` / `sg-dashboard-url` | | Deprecated. Self-hosted or dedicated hosts only |
