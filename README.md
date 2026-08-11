@@ -3,11 +3,6 @@
 Evaluate Tirith policies against a terraform plan in CI, and report the outcome as a
 pull-request comment and a check run.
 
-> **`@v2` is not cut yet.** Until it is, pin the branch:
-> `uses: StackGuardian/tirith-iac-governance-action@feat/tirith-policy-check`.
-> Do **not** use `@main` or `@v1` — both still serve the unrelated sg-cli passthrough action,
-> and `@main` fails by quietly running the wrong thing rather than by erroring.
-
 ```yaml
 permissions:
   contents: read
@@ -44,10 +39,7 @@ Everything below is for when you want something other than the defaults:
 
 `SG_API_TOKEN` and `SG_ORG` may be supplied either as environment variables, as above, or as the
 `sg-api-key` and `sg-org` inputs. The environment route exists because GitHub does not expose
-`secrets` or `vars` to an action automatically, so it is the only way to keep the `with:` block
-empty. The key should be an **organization** (`sgo_`) token: `sgu_` tokens are non-functional for
-SSO-group-only users. A `sgu_` key is warned about rather than rejected, so the symptom is a 403
-later rather than a clear failure up front.
+`secrets` or `vars` to an action automatically. We recommend to use the **organization** (`sgo_`) token, not the `sgu_` tokens.
 
 ## Running without a StackGuardian org
 
@@ -202,8 +194,6 @@ be data loss. Policy evaluation is unaffected either way.
 
 Every input is optional — the action runs with an empty `with:` block.
 
-The version of `py-tirith` is **not** an input: it is fixed by the action and released with it, so a given action ref always runs one known CLI.
-
 | Input | Default | |
 |---|---|---|
 | `sg-api-key` | `$SG_API_TOKEN` | Organization (`sgo_`) token. Omit for local mode |
@@ -330,15 +320,3 @@ Complete workflows, runnable as-is:
 | [`examples/local-no-credentials.yml`](examples/local-no-credentials.yml) | Policies from the repository, nothing uploaded |
 | [`examples/with-state.yml`](examples/with-state.yml) | A state document, and the two-phase plan-then-state pipeline |
 | [`examples/monorepo-matrix.yml`](examples/monorepo-matrix.yml) | One leg per stack, with the `workflow-id` and `comment-tag` split above |
-
-## Development
-
-```
-pip install pytest
-pip install "py-tirith @ git+https://github.com/StackGuardian/tirith@feat/gate-capable-engine"
-python -m pytest tests/ -q
-```
-
-CI additionally runs two fail-closed smoke jobs, which are the ones worth not breaking: a policy
-violation must gate the pull request, and a run that produces no verdict must be red rather than
-green. Both assert on the exit code, not on the log.
