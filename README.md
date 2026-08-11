@@ -3,6 +3,11 @@
 Evaluate Tirith policies against a terraform plan in CI, and report the outcome as a
 pull-request comment and a check run.
 
+> **`@v2` is not cut yet.** Until it is, pin the branch:
+> `uses: StackGuardian/tirith-iac-governance-action@feat/tirith-policy-check`.
+> Do **not** use `@main` or `@v1` — both still serve the unrelated sg-cli passthrough action,
+> and `@main` fails by quietly running the wrong thing rather than by erroring.
+
 ```yaml
 permissions:
   contents: read
@@ -40,8 +45,9 @@ Everything below is for when you want something other than the defaults:
 `SG_API_TOKEN` and `SG_ORG` may be supplied either as environment variables, as above, or as the
 `sg-api-key` and `sg-org` inputs. The environment route exists because GitHub does not expose
 `secrets` or `vars` to an action automatically, so it is the only way to keep the `with:` block
-empty. The key must be an **organization** (`sgo_`) token: `sgu_` tokens are non-functional for
-SSO-group-only users.
+empty. The key should be an **organization** (`sgo_`) token: `sgu_` tokens are non-functional for
+SSO-group-only users. A `sgu_` key is warned about rather than rejected, so the symptom is a 403
+later rather than a clear failure up front.
 
 ## Running without a StackGuardian org
 
@@ -60,7 +66,9 @@ takes a single file or a glob.
 
 Mode is chosen by whether credentials are present — there is no switch — and the log says which one
 ran. **No credentials and no policies is a hard failure, not a skip**: a check that gated nothing
-must not report green.
+must not report green. So is **one credential without the other** — a set `sg-org` with an empty
+`sg-api-key`, which is what a typo in `vars.SG_ORG` produces — because silently dropping to local
+mode would evaluate the wrong policies and still report green.
 
 | | with credentials | without |
 |---|---|---|
@@ -68,14 +76,14 @@ must not report green.
 | Where evaluation happens | a StackGuardian workflow run | your GitHub runner |
 | Run history, dashboard, `wfrun-url` | yes | no |
 | Org-wide enforcement, drift checks, approvals | yes | no |
-| Centralized governance | yes | no |
-| Dashboards | yes | no |
-| Remediation and auto-fix PRs | yes | no |
-| Detailed audit trail | yes | no |
-| Disaster Recovery | yes | no |
-| Visualize plan with diff | yes | no |
+| Run history and audit trail | yes | no |
+| Cost policies (`infracost-path`) | yes | ignored, with a warning |
+| State published as the workflow's `tfstate.json` | yes | no |
+| The code bundle other systems read | yes | nothing is uploaded |
 
-A local run is still masked before anything is rendered. Nothing is uploaded, but evaluator messages
+A local run is still masked before anything is rendered — for `terraform_plan` and
+`terraform_state`. `json` and `kubernetes` documents are passed through untouched in both modes,
+because there is no schema to know which fields are secret. Nothing is uploaded, but evaluator messages
 quote the values they compared and those messages go into the pull-request comment — so masking is
 what keeps a `sensitive` value out of GitHub. It also means a local verdict matches the platform one
 for the same plan, because the platform evaluates the masked document too.
@@ -192,29 +200,32 @@ be data loss. Policy evaluation is unaffected either way.
 
 ## Inputs
 
-| Input | Required | Default | |
-|---|---|---|---|
-| `sg-api-key` | | `$SG_API_TOKEN` | Organization (`sgo_`) token. Omit for local mode |
-| `sg-org` | | `$SG_ORG` | Organization name. Omit for local mode |
-| `policy-path` | | `.tirith/policies` | Local mode only: a file, directory or glob of policy files |
-| `sg-region` | | `eu` | `eu` or `us`. Sets both URLs, so run links always match |
-| `input-path` | | `plan.json` / `tfplan.json` | Document to evaluate, found by convention |
-| `plan-file` | | | Binary plan, rendered with `show -json` in memory |
-| `input-kind` | | `terraform_plan` | `terraform_plan`, `terraform_state`, `kubernetes`, `json` |
-| `state-path` | | | Terraform state, masked before upload. Also published as the workflow's `tfstate.json` — see below |
-| `infracost-path` | | | `infracost breakdown --format json` |
-| `source-dir` | | `.` | Terraform source uploaded with the documents. Narrow it, or `""` to send documents only. See above |
-| `fail-on-error` | | `false` | Fail the job when a policy fails |
-| `comment` / `check` | | `true` | Post the comment / check run |
-| `comment-tag` | | `default` | Namespaces the comment and the archive |
-| `timeout` | | `1800` | Seconds to wait for the run |
-| `workflow-id` | | derived | Overrides `github-com-<owner>-<repo>-<workflow-filename>` |
-| `workflow-group` | | `default` | Workflow group. Policies are scoped per group |
-| `terraform-version` | | | Recorded on the workflow at creation |
-| `step-template-id` | | platform default | Override the terraform step template |
-| `tirith-version` | | `1.2.0` | Pin the CLI version |
-| `terraform-bin` | | auto | Binary for `plan-file`. Prefers the real one over the CI wrapper |
-| `sg-api-url` / `sg-dashboard-url` | | | Deprecated. Self-hosted or dedicated hosts only |
+Every input is optional — the action runs with an empty `with:` block.
+
+| Input | Default | |
+|---|---|---|
+| `sg-api-key` | `$SG_API_TOKEN` | Organization (`sgo_`) token. Omit for local mode |
+| `sg-org` | `$SG_ORG` | Organization name. Omit for local mode |
+| `policy-path` | `.tirith/policies` | Local mode only: a file, directory or glob of policy files |
+| `sg-region` | `eu` | `eu` or `us`. Sets both URLs, so run links always match |
+| `input-path` | `plan.json` / `tfplan.json` | Document to evaluate, found by convention. Required in local mode for `json` and `kubernetes`, which have no conventional filename |
+| `plan-file` | | Binary plan, rendered with `show -json` in memory |
+| `input-kind` | `terraform_plan` | `terraform_plan`, `terraform_state`, `kubernetes`, `json` |
+| `state-path` | | Terraform state, masked before upload. Also published as the workflow's `tfstate.json` — see below |
+| `infracost-path` | | `infracost breakdown --format json`. Platform mode only — ignored locally, with a warning |
+| `source-dir` | `.` | Terraform source uploaded with the documents. Narrow it, or `""` to send documents only. See above |
+| `fail-on-error` | `false` | Fail the job when a policy fails |
+| `comment` / `check` | `true` | Post the comment / check run |
+| `comment-tag` | `default` | Namespaces the comment, the archive **and the check-run name** — see [Matrix](#matrix-and-monorepo-usage) |
+| `timeout` | `1800` | Seconds to wait for the run |
+| `workflow-id` | derived | Overrides `github-com-<owner>-<repo>-<workflow-filename>` |
+| `workflow-group` | `default` | Workflow group. Policies are scoped per group |
+| `terraform-version` | | Recorded on the workflow at creation |
+| `step-template-id` | platform default | Override the terraform step template |
+| `tirith-version` | `feat/gate-capable-engine` | Git ref of py-tirith. **A branch, not a pin** — a run can change behaviour with nothing in your repository changing. Pass a tag if you need reproducibility; the default becomes one at release |
+| `terraform-bin` | auto | Binary for `plan-file`. Prefers the real one over the CI wrapper |
+| `github-token` | `${{ github.token }}` | Used only to post the comment and check run. Never sent to StackGuardian. Set to `""` to skip reporting entirely |
+| `sg-api-url` / `sg-dashboard-url` | | Deprecated. Self-hosted or dedicated hosts only |
 
 ## Outputs
 
@@ -245,10 +256,11 @@ not exist would be worse than none.
 The last three rows are deliberate: a run that produced no verdict must never look like a pass, and
 neither must one that had nothing to check.
 
-Reporting is separate from the verdict. If `github-token` is empty the comment and the check run are
-skipped with a log line and the exit code is unchanged — the same thing happens on a fork pull
-request, where the token is read-only. Set `comment: false` / `check: false` to turn either off
-deliberately.
+Reporting is separate from the verdict, and the exit code is unchanged either way. An empty
+`github-token` skips the comment and the check run before attempting them, with a log line. A fork
+pull request *attempts* them and fails with a `::warning::`, because the token GitHub gives a fork is
+read-only — so if a comment is missing, which of the two you are looking at is visible in the log.
+Set `comment: false` / `check: false` to turn either off deliberately.
 
 ## Matrix and monorepo usage
 
@@ -274,18 +286,26 @@ Both are load-bearing. Runs on a single StackGuardian workflow serialize while o
 without a distinct `workflow-id` a 20-leg matrix becomes a 20-deep queue. And the sticky comment is
 found by a marker containing the tag, so shared tags mean the legs overwrite each other's comment.
 
+**`comment-tag` also renames the check run**, which matters if you gate on it. The name is
+`Tirith IaC Governance` for the default tag and `Tirith IaC Governance (<tag>)` for any other, so the
+matrix above produces `Tirith IaC Governance (dev)` and `Tirith IaC Governance (prod)`. A branch
+protection rule requiring the unsuffixed name matches **neither**, and a required check that never
+arrives leaves the pull request blocked while gating nothing. Either require one check per tag, or
+leave `comment-tag` unset on the leg you gate on.
+
 ## Upgrading
 
 > **The check run was renamed** to `Tirith IaC Governance` (it was `Tirith Policy`). If you made it a
 > **required status check** in branch protection, update the rule — a rule still naming `Tirith Policy`
 > waits for a check that no longer arrives, so those pull requests stay blocked and are never gated by
-> the new one. Nothing else about the check changed.
+> the new one. Nothing else about the check changed — but note that a non-default `comment-tag`
+> suffixes the name, so check what your runs actually produce before writing the rule.
 
 ## Migrating from the sg-cli action
 
-Version 1 of this action was a thin `sg-cli` passthrough with a single `operation` input. It has
-evolved into what this action does now. Pin `@v1.0.0-beta` to keep the old behaviour; there is no
-automatic migration.
+The first version of this action was a thin `sg-cli` passthrough with a single `operation` input.
+It has evolved into what this action does now. To keep the old behaviour pin the tag exactly —
+`@v1.0.0-beta` — not `@v1`, which does not exist as a tag. There is no automatic migration.
 
 ## Where the code lives
 
@@ -298,3 +318,26 @@ tirith platform check --org acme --workflow-id infra --input-path plan.json --fa
 
 What is left in this repository is only what is genuinely GitHub-specific: reading the event
 payload, posting the comment and check run, and setting action outputs.
+
+## Examples
+
+Complete workflows, runnable as-is:
+
+| | |
+|---|---|
+| [`examples/basic.yml`](examples/basic.yml) | The ordinary case: plan, evaluate, comment |
+| [`examples/local-no-credentials.yml`](examples/local-no-credentials.yml) | Policies from the repository, nothing uploaded |
+| [`examples/with-state.yml`](examples/with-state.yml) | A state document, and the two-phase plan-then-state pipeline |
+| [`examples/monorepo-matrix.yml`](examples/monorepo-matrix.yml) | One leg per stack, with the `workflow-id` and `comment-tag` split above |
+
+## Development
+
+```
+pip install pytest
+pip install "py-tirith @ git+https://github.com/StackGuardian/tirith@feat/gate-capable-engine"
+python -m pytest tests/ -q
+```
+
+CI additionally runs two fail-closed smoke jobs, which are the ones worth not breaking: a policy
+violation must gate the pull request, and a run that produces no verdict must be red rather than
+green. Both assert on the exit code, not on the log.
