@@ -84,7 +84,7 @@ def tirith_modules():
     if _IMPORT_ERROR is not None:
         raise LocalError(
             "Local mode needs the tirith package importable by this interpreter, and it is not "
-            f"({_IMPORT_ERROR}). Raise the action's tirith-version input, or supply StackGuardian "
+            f"({_IMPORT_ERROR}). Use a newer release of this action, or supply StackGuardian "
             "credentials to use platform mode instead."
         )
     return _discover, _redact, _report

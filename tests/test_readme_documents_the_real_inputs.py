@@ -2,10 +2,12 @@
 The README's inputs table must match `action.yml`.
 
 Written because it did not. `tirith-version` was documented as defaulting to `1.2.0` — a version pin —
-while `action.yml` defaults it to a *branch*, which the same file's description explicitly warns is a
-moving ref that "can turn a green pipeline red with nothing in the repository changing". A reader
-following the README believed they were pinned and were not. `github-token` was missing from the table
-altogether while being referenced in prose two sections later.
+while `action.yml` defaulted it to a *branch*, which the same file's description explicitly warned was
+a moving ref that "can turn a green pipeline red with nothing in the repository changing". A reader
+following the README believed they were pinned and were not. That input has since been removed
+outright, which is a better answer than documenting it correctly; the guard below now keeps it gone.
+`github-token` was missing from the table altogether while being referenced in prose two sections
+later.
 
 Both are mechanical to check, and neither was caught by review, twice. So they are checked here rather
 than trusted: a hand-maintained table beside a machine-readable declaration only stays right while
@@ -84,17 +86,29 @@ def test_every_documented_default_is_the_real_one():
         )
 
 
-def test_the_tirith_version_default_is_not_described_as_a_pin():
+def test_the_cli_version_is_not_a_caller_input():
     """
-    Specific guard on the one that actually shipped wrong, because the generic check above would
-    accept "1.2.0" again the moment the default becomes a tag *different* from what the README says.
+    `tirith-version` was an input, and should not come back.
 
-    While the default is a branch, the README has to say so: a user who thinks they are pinned and is
-    not has no reason to investigate when a passing pipeline starts failing.
+    A per-caller override meant every repository could run a different CLI behind the same action ref,
+    so "which version failed" stopped being answerable from the action version alone -- and its default
+    was a branch, so a run could change behaviour with nothing in the caller's repository changing.
+    The version is now fixed in the install step and released with the action.
     """
-    real = str(DECLARED["tirith-version"].get("default", ""))
-    if re.fullmatch(r"\d+\.\d+\.\d+", real):
-        return  # a real version pin; nothing to warn about
-    row = next(line for line in README_TEXT.splitlines() if line.startswith("| `tirith-version`"))
-    assert real in row, f"the default is `{real}`; the README row does not mention it: {row}"
-    assert "not a pin" in row, "a branch default must be flagged as not a pin"
+    assert "tirith-version" not in DECLARED, (
+        "the py-tirith version is deliberately not an input: pin it in the Install step so one "
+        "action ref means one known CLI"
+    )
+    assert "tirith-version" not in README_TEXT
+
+
+def test_the_cli_version_is_pinned_in_exactly_one_place():
+    """
+    Two install sites drift, and the second one is always the CI workflow -- which is exactly where a
+    version skew hides, because CI passing is what you would rely on to notice.
+    """
+    with open(os.path.join(ROOT, "action.yml")) as f:
+        action = f.read()
+
+    refs = re.findall(r"git\+https://github\.com/StackGuardian/tirith@(\S+?)\"", action)
+    assert len(refs) == 1, f"expected one pinned py-tirith ref in action.yml, found {refs}"

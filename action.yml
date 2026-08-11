@@ -90,10 +90,6 @@ inputs:
   step-template-id:
     description: "Override the StackGuardian policy-evaluation step template. Omit to use the platform's own default."
     required: false
-  tirith-version:
-    description: "Git ref of py-tirith to install. TEMPORARY default: a branch, until StackGuardian/tirith is tagged 1.2.0. Set this back to a tag before release -- a moving ref means a green pipeline can turn red with nothing in the repository changing."
-    required: false
-    default: "feat/gate-capable-engine"
   github-token:
     description: "Token used to post the comment and the check run. Never sent to StackGuardian."
     required: false
@@ -145,9 +141,18 @@ runs:
       env:
         SG_API_KEY_INPUT: ${{ inputs.sg-api-key }}
 
+    # The py-tirith version is fixed here on purpose, and is not an input. A per-caller override
+    # meant every repository could pin a different CLI against the same action, so a bug report
+    # could name a version this action had never been tested against. One ref, changed here,
+    # released with the action.
+    #
+    # It is still a BRANCH rather than a tag: StackGuardian/tirith's newest tag is 1.0.5,
+    # `platform check` exists only on this branch (`main` does not have it), and py-tirith is not on
+    # PyPI. Pinning 1.2.0 today would fail to resolve on every run. Cutting that tag is the release
+    # step that turns this line into a real pin; nothing else here needs to change.
     - name: Install tirith
       shell: bash
-      run: pip install --quiet "py-tirith @ git+https://github.com/StackGuardian/tirith@${{ inputs.tirith-version }}"
+      run: pip install --quiet "py-tirith @ git+https://github.com/StackGuardian/tirith@feat/gate-capable-engine"
 
     - name: Evaluate policies
       id: tirith
