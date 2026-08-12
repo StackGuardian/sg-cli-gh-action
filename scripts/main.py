@@ -3,7 +3,7 @@
 Tirith IaC Governance -- GitHub Action entry point.
 
 This is a wrapper. Everything that talks to StackGuardian -- masking, packing, uploading, running,
-polling, rendering -- lives in the `tirith` CLI (`tirith remote check`). What is left here is
+polling, rendering -- lives in the `tirith` CLI (`tirith platform check`). What is left here is
 only the part that is genuinely GitHub-specific:
 
   * translating the workflow event into a workflow identity and trigger details
@@ -42,7 +42,7 @@ DEFAULT_POLICY_PATH = ".tirith/policies"
 # script behaves the same as the action; an explicitly empty value is the opt-out.
 DEFAULT_SOURCE_DIR = "."
 
-# Exit codes from `tirith remote check`. 3 means a policy said no; 1 means tirith could not
+# Exit codes from `tirith platform check`. 3 means a policy said no; 1 means tirith could not
 # reach the platform or the run produced no verdict. The distinction is the whole reason
 # fail-on-error exists, so it must survive the round trip.
 EXIT_OK = 0
@@ -301,7 +301,7 @@ def check_conclusion(verdict):
 
 
 def build_command(result_path, markdown_path, trigger_path, tag):
-    """Assemble the `tirith remote check` invocation from the action inputs."""
+    """Assemble the `tirith platform check` invocation from the action inputs."""
     sha = head_sha()
     workflow_id = resolve_workflow_id()
 
@@ -312,7 +312,7 @@ def build_command(result_path, markdown_path, trigger_path, tag):
 
     cmd = [
         "tirith",
-        "remote",
+        "platform",
         "check",
         "--org", resolve_org(),
         "--workflow-id", workflow_id,
@@ -466,7 +466,7 @@ def run_local(result_path, markdown_path, tag):
     """
     Evaluate policies on the runner, with no StackGuardian involvement.
 
-    Writes the same two files `tirith remote check` writes -- the result document and the comment
+    Writes the same two files `tirith platform check` writes -- the result document and the comment
     body -- so everything downstream is identical in both modes: the outputs, the sticky comment,
     the check run, the step summary. Returns an exit code from the same three values the CLI uses,
     for the same reasons.
