@@ -304,7 +304,7 @@ The action is a wrapper of Tirith which is maintained in
 [tirith](https://github.com/StackGuardian/tirith). You can also run this using the following from GitLab, a Makefile, local etc.:
 
 ```
-tirith platform check --org acme --workflow-id infra --input-path plan.json --fail-on-error
+tirith remote check --org acme --workflow-id infra --input-path plan.json --fail-on-error
 ```
 
 What is left in this repository is only what is genuinely GitHub-specific: reading the event
