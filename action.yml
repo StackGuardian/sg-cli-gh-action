@@ -147,7 +147,7 @@ runs:
     # released with the action.
     #
     # It is still a BRANCH rather than a tag: StackGuardian/tirith's newest tag is 1.0.5,
-    # `remote check` exists only on this branch (`main` does not have it), and py-tirith is not on
+    # `platform check` exists only on this branch (`main` does not have it), and py-tirith is not on
     # PyPI. Pinning 1.2.0 today would fail to resolve on every run. Cutting that tag is the release
     # step that turns this line into a real pin; nothing else here needs to change.
     - name: Install tirith
