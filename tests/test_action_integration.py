@@ -309,7 +309,9 @@ def test_run_is_created_with_the_archive_and_no_step_config(tmp_path, stub):
     assert len(created) == 1
 
     body = json.loads(created[0]["body"])
-    assert body["TerraformAction"] == {"action": "tirith-iac-governance"}
+    # A dummy: the pre-plan step exits 12, so `generate-terraform-plan` never executes. There is no
+    # bespoke terraform action -- that was the design this replaced, and it needed a core change.
+    assert body["TerraformAction"] == {"action": "plan"}
     # Its own field: `terraformProjectZip` belongs to the CLI-driven workflow, and a context tag
     # would put an internal storage key into global search.
     assert body["CodeZipWfArtifactPath"] == "orgs/acme/wf/a.tar.gz"
@@ -511,7 +513,8 @@ def test_source_is_uploaded_by_default(tmp_path, stub):
     run_action(tmp_path, stub, unset=("INPUT_SOURCE_DIR",))
 
     names = archive_members(uploaded_archive())
-    assert "src/main.tf" in names, names
+    # Source under `code/`, documents at the root -- the layout the step and any other consumer read.
+    assert "code/src/main.tf" in names, names
     assert "plan.json" in names
 
 
@@ -536,8 +539,8 @@ def test_an_empty_source_dir_is_the_opt_out(tmp_path, stub):
     run_action(tmp_path, stub, INPUT_SOURCE_DIR="")
 
     names = archive_members(uploaded_archive())
-    assert "main.tf" not in names
-    assert "src/main.tf" not in names
+    assert "code/main.tf" not in names
+    assert "code/src/main.tf" not in names
     assert "plan.json" in names, "the masked document must still be uploaded"
 
 
@@ -1078,7 +1081,7 @@ def test_a_dropped_source_tree_raises_a_warning_annotation(tmp_path, stub):
     assert "terraform source was not uploaded" in completed.stdout
     # The check still ran, and the documents still went.
     assert "plan.json" in archive_members(uploaded_archive())
-    assert "src/main.tf" not in archive_members(uploaded_archive())
+    assert "code/src/main.tf" not in archive_members(uploaded_archive())
 
 
 def test_the_comment_names_the_commit_it_scanned(tmp_path, stub):
