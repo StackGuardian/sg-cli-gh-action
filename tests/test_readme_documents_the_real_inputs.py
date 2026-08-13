@@ -112,3 +112,31 @@ def test_the_cli_version_is_pinned_in_exactly_one_place():
 
     refs = re.findall(r"git\+https://github\.com/StackGuardian/tirith@(\S+?)\"", action)
     assert len(refs) == 1, f"expected one pinned py-tirith ref in action.yml, found {refs}"
+
+    # The docstring above named the CI workflow as where skew hides, and then did not look at it.
+    # It hid there: when the tirith branch this used to track was deleted, action.yml and test.yml
+    # both had to change, and only one of them was obvious.
+    with open(os.path.join(ROOT, ".github", "workflows", "test.yml")) as f:
+        workflow = f.read()
+
+    ci_refs = re.findall(r"git\+https://github\.com/StackGuardian/tirith@(\S+?)\"", workflow)
+    assert ci_refs, "CI installs py-tirith from git; expected a pinned ref in test.yml"
+    assert set(ci_refs) == set(refs), (
+        f"action.yml pins {refs[0]} but CI installs {sorted(set(ci_refs))} -- "
+        "CI would be testing a different CLI than the action ships"
+    )
+
+
+def test_the_cli_is_pinned_to_a_tag_not_a_branch():
+    """
+    A branch ref lets a caller's green pipeline turn red with nothing in their repository changing,
+    and a deleted branch breaks the action outright -- which is what happened to the branch this
+    used to track once it merged.
+    """
+    with open(os.path.join(ROOT, "action.yml")) as f:
+        action = f.read()
+
+    ref = re.findall(r"git\+https://github\.com/StackGuardian/tirith@(\S+?)\"", action)[0]
+    assert re.fullmatch(r"v?\d+\.\d+\.\d+[\w.-]*", ref), (
+        f"py-tirith should be pinned to a release tag, got {ref!r}"
+    )
