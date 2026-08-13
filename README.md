@@ -1,17 +1,25 @@
-# Tirith IaC Governance
+# Tirith — IaC Governance plugin
 
-Evaluate Tirith policies against a terraform plan in CI, and report the outcome as a
-pull-request comment and a check run.
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
+**Plugin IaC Governance for any pipeline, running anywhere.** Evaluate plans with Tirith, protect
+sensitive values, enforce centralised governance, and surface actionable results before
+infrastructure changes are applied.
+
+This repository is the GitHub Actions front end. It checks the plan your workflow already produces
+against your policies, then reports the outcome as a sticky pull-request comment and a check run, and
+sets the job's exit code so a violating change never reaches `apply`. The policies themselves are
+[Tirith](https://github.com/StackGuardian/tirith) — an Apache-2.0 CLI you can run from any CI system
+or from a laptop, which is what makes one policy set cover every pipeline you have rather than only
+the ones on GitHub.
+
+Two lines is the whole integration:
 
 ```yaml
 permissions:
   contents: read
   pull-requests: write   # sticky comment
   checks: write          # check run
-
-env:
-  SG_API_TOKEN: ${{ secrets.SG_API_TOKEN }}
-  SG_ORG: ${{ vars.SG_ORG }}
 
 steps:
   - run: |
@@ -21,9 +29,10 @@ steps:
   - uses: StackGuardian/tirith-iac-governance-action@v2
 ```
 
-That is the whole integration. With `plan.json` in the working directory the action needs no
-`with:` block at all — it finds the document by convention, derives the workflow identity from the
-repository and workflow filename, and defaults to the `eu` region.
+With `plan.json` in the working directory the action needs no `with:` block at all — it finds the
+document by convention and evaluates the policy files committed under `.tirith/policies`, on the
+runner, talking to nothing. Add [credentials](#credentials) to evaluate your organization's policies
+instead; that is the only difference between the two modes, and it is optional.
 
 Everything below is for when you want something other than the defaults:
 
@@ -37,14 +46,25 @@ Everything below is for when you want something other than the defaults:
 
 ### Credentials
 
-`SG_API_TOKEN` and `SG_ORG` may be supplied either as environment variables, as above, or as the
-`sg-api-key` and `sg-org` inputs. The environment route exists because GitHub does not expose
-`secrets` or `vars` to an action automatically. We recommend to use the **organization** (`sgo_`) token, not the `sgu_` tokens.
+Supplying credentials switches the action to evaluating the policies your StackGuardian organization
+enforces, instead of the files in your repository:
 
-## Running without a StackGuardian org
+```yaml
+env:
+  SG_API_TOKEN: ${{ secrets.SG_API_TOKEN }}
+  SG_ORG: ${{ vars.SG_ORG }}
+```
 
-Omit the credentials and the action evaluates policy files from your repository instead, on the
-runner, talking to nothing. Everything you see on the pull request is the same — the same sticky
+They may be given as those environment variables or as the `sg-api-key` and `sg-org` inputs. The
+environment route exists because GitHub does not expose `secrets` or `vars` to an action
+automatically. We recommend to use the **organization** (`sgo_`) token, not the `sgu_` tokens. The
+workflow identity is derived from the repository and workflow filename, and the region defaults to
+`eu`.
+
+## Local mode: policies from your repository
+
+This is the default. With no credentials the action evaluates policy files from your repository, on
+the runner, talking to nothing. Everything you see on the pull request is the same — the same sticky
 comment, the same `Tirith IaC Governance` check run, the same outputs and exit codes:
 
 ```yaml
@@ -104,7 +124,7 @@ to have a failure warn instead of block. Anything unrecognised there blocks.
 With credentials, policies live in StackGuardian and are selected server-side by their `EnforcedOn`
 scope: there are no policy files in your repository and nothing is evaluated on the runner. Without
 them, steps 2 and 3 are replaced by a local evaluation — see
-[Running without a StackGuardian org](#running-without-a-stackguardian-org).
+[Local mode](#local-mode-policies-from-your-repository).
 
 ### Getting your policies to apply
 
