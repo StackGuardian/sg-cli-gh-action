@@ -19,7 +19,7 @@ jobs:
       - name: Install tirith and pytest
         run: |
           pip install pytest
-          pip install "py-tirith @ git+https://github.com/StackGuardian/tirith@feat/gate-capable-engine"
+          pip install "py-tirith @ git+https://github.com/StackGuardian/tirith@1.2.0"
       - run: python -m pytest tests/ -q
 
   smoke-local:

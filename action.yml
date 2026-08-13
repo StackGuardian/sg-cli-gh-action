@@ -147,12 +147,13 @@ runs:
     # released with the action.
     #
     # It is still a BRANCH rather than a tag: StackGuardian/tirith's newest tag is 1.0.5,
-    # `platform check` exists only on this branch (`main` does not have it), and py-tirith is not on
-    # PyPI. Pinning 1.2.0 today would fail to resolve on every run. Cutting that tag is the release
-    # step that turns this line into a real pin; nothing else here needs to change.
+    # Pinned to a tag, not a branch: a branch would let a caller's green pipeline turn red with
+    # nothing in their repository changing, and a deleted branch breaks the action outright.
+    # Installed from git rather than PyPI because py-tirith is not published there -- and
+    # `pip install tirith` fetches an unrelated project of the same name.
     - name: Install tirith
       shell: bash
-      run: pip install --quiet "py-tirith @ git+https://github.com/StackGuardian/tirith@feat/gate-capable-engine"
+      run: pip install --quiet "py-tirith @ git+https://github.com/StackGuardian/tirith@1.2.0"
 
     - name: Evaluate policies
       id: tirith
