@@ -312,9 +312,12 @@ def test_run_is_created_with_the_archive_and_no_step_config(tmp_path, stub):
     # A dummy: the pre-plan step exits 12, so `generate-terraform-plan` never executes. There is no
     # bespoke terraform action -- that was the design this replaced, and it needed a core change.
     assert body["TerraformAction"] == {"action": "plan"}
-    # Its own field: `terraformProjectZip` belongs to the CLI-driven workflow, and a context tag
-    # would put an internal storage key into global search.
-    assert body["CodeZipWfArtifactPath"] == "orgs/acme/wf/a.tar.gz"
+    # No archive field on the run at all. The bundle reaches the step through the workflow's own
+    # artifact prefix, which the run controller syncs down before any step executes, and the step is
+    # told which one to read via its wfStepInputData. That is what removed the last api dependency:
+    # `CodeZipWfArtifactPath` and `terraformProjectZip` were both earlier carriers needing a
+    # serializer field, and neither exists here now.
+    assert "CodeZipWfArtifactPath" not in body
     assert "terraformProjectZip" not in body
     assert "ContextTags" not in body
     assert "WfStepsConfig" not in body, "core ignores it for TERRAFORM workflows"
@@ -547,19 +550,26 @@ def test_an_empty_source_dir_is_the_opt_out(tmp_path, stub):
 def test_source_is_uploaded_when_a_subdirectory_is_named(tmp_path, stub):
     run_action(tmp_path, stub)
 
-    assert "main.tf" in archive_members(uploaded_archive())
+    assert "code/main.tf" in archive_members(uploaded_archive())
 
 
-def test_the_archive_name_is_excluded_from_artifact_sync(tmp_path, stub):
+def test_the_archive_name_survives_the_artifact_sync(tmp_path, stub):
     """
-    `__sg.` keeps the archive out of the per-run artifact sync. Without it every later run of the
-    workflow downloads it, forever -- the upload sync has no --delete.
+    The name must match NONE of the sync's exclude patterns, which is the opposite of what this test
+    once asserted.
+
+    It began as `__sg.`, deliberately keeping the archive OUT of the per-run sync. Once that sync
+    became the *delivery* mechanism -- the step reads the bundle out of $LOCAL_ARTIFACTS_DIR -- being
+    excluded from it was exactly wrong. A second attempt at `__sg.` on 08-12 was reverted for the same
+    reason: the prefix hides an artifact from a listing only where core enumerates server-side, so on
+    a shared runner it bought nothing and still cost delivery.
     """
     run_action(tmp_path, stub)
 
     upload_urls = [r["path"] for r in Stub.requests if "file_upload_url" in r["path"]]
     assert upload_urls
-    assert "__sg." in upload_urls[0]
+    for excluded in ("sg.", "__sg.", "pci_", "compliance_raw"):
+        assert excluded not in upload_urls[0], f"the name matches the sync exclude {excluded!r}"
 
 
 def test_workflow_records_the_source_repo(tmp_path, stub):
@@ -583,7 +593,7 @@ def test_the_project_archive_is_retained_for_autofix(tmp_path, stub):
     The archive is the source that produced the findings, and the autofix system reads it back from
     the run record, so deleting it would remove the only copy of what was actually evaluated.
 
-    Retaining it is safe for later runs -- the `__sg.` prefix keeps it out of the per-run artifact
+    Retaining it costs later runs a download -- the name is per commit and tag, so bundles accumulate in the artifact
     sync -- but it is not free: nothing prunes this prefix, so it is one object per commit and tag.
     """
     run_action(tmp_path, stub)
@@ -594,9 +604,10 @@ def test_the_project_archive_is_retained_for_autofix(tmp_path, stub):
     uploads = [r for r in Stub.requests if "file_upload_url" in r["path"]]
     assert uploads, [r["path"] for r in Stub.requests]
     name = uploads[0]["path"].split("filename=", 1)[1].split("&", 1)[0]
-    # The `__sg.` prefix is what keeps it out of every later run's working directory, and the name
-    # stays flat: a nested key is swallowed by the greedy <path:wfGrp> converter in the authorizer.
-    assert name.startswith("__sg."), name
+    # Per commit and tag, so two concurrent runs cannot overwrite each other -- the action derives one
+    # workflow id per repository, so two open pull requests is the ordinary case. Flat, because a
+    # nested key is swallowed by the greedy <path:wfGrp> converter in the authorizer.
+    assert name.startswith("tirith-bundle-"), name
     assert "/" not in name, name
 
 
