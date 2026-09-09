@@ -1109,7 +1109,11 @@ def test_the_comment_names_the_commit_it_scanned(tmp_path, stub):
     assert writes, "no comment was posted"
     body = writes[0][1]["body"]
     # The harness's event payload puts the PR head sha at 9f2c1ab...; short form is what git shows.
-    assert "<sub>Scanned commit <code>9f2c1ab</code></sub>" in body, body[:400]
+    # Asserted as a fragment, not a whole line: since py-tirith 1.2.1 the same <sub> also carries the
+    # source dir and the workflow id, so a reader of a matrix comment can tell which leg wrote it.
+    # What this test is about is the commit being named at all, not what else shares the line.
+    assert "Scanned commit <code>9f2c1ab</code>" in body, body[:400]
+    assert "<sub>Scanned commit" in body, body[:400]
 
 
 # --- ways a run that evaluated nothing could still look like a pass -------------------------------

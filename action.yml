@@ -146,14 +146,13 @@ runs:
     # could name a version this action had never been tested against. One ref, changed here,
     # released with the action.
     #
-    # It is still a BRANCH rather than a tag: StackGuardian/tirith's newest tag is 1.0.5,
     # Pinned to a tag, not a branch: a branch would let a caller's green pipeline turn red with
     # nothing in their repository changing, and a deleted branch breaks the action outright.
     # Installed from git rather than PyPI because py-tirith is not published there -- and
     # `pip install tirith` fetches an unrelated project of the same name.
     - name: Install tirith
       shell: bash
-      run: pip install --quiet "py-tirith @ git+https://github.com/StackGuardian/tirith@1.2.0"
+      run: pip install --quiet "py-tirith @ git+https://github.com/StackGuardian/tirith@1.2.1"
 
     - name: Evaluate policies
       id: tirith
