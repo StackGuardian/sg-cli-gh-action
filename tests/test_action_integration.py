@@ -704,6 +704,28 @@ def read_outputs(path):
     return values
 
 
+def test_local_mode_renders_the_plan_block_from_the_masked_document(tmp_path):
+    """
+    Local mode shows the planned changes too, and shows the masked copy.
+
+    The platform path gets this for free -- check.py hands the plan to the renderer. Local mode calls
+    render_markdown itself, so it has to pass the document prepare_input wrote, and for a while it
+    did not: the comment carried findings with no sign of what was changing. Asserted from the
+    scratch markdown rather than a comment, because this mode deliberately talks to nothing.
+    """
+    plan = local_plan()
+    plan["resource_changes"][0]["change"]["after"]["user_data"] = SECRET
+    plan["resource_changes"][0]["change"]["after_sensitive"] = {"user_data": True}
+
+    completed, _, scratch = run_local(tmp_path, plan=plan)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+    markdown = next(iter(scratch.glob("tirith-comment-*.md"))).read_text()
+    assert "```diff" in markdown, markdown[:800]
+    assert "aws_instance.app" in markdown, markdown[:800]
+    assert SECRET not in markdown, "local mode rendered the unmasked plan into the comment"
+
+
 def run_local(tmp_path, policies=(("policy.tirith.json", PASSING_POLICY),), plan=None, **overrides):
     """
     Run the action with no credentials at all.

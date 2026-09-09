@@ -526,6 +526,21 @@ def run_local(result_path, markdown_path, tag):
         if redactions:
             log(f"Masked {redactions} sensitive value(s) before evaluating")
 
+        # The document prepare_input just wrote, so the comment can show the planned changes the
+        # way the platform path does. It is the MASKED copy -- the same file the policies are about
+        # to be evaluated against -- which is the only version allowed anywhere near a comment.
+        # Read only for the kinds that are masked and carry resource_changes; render_plan_block
+        # ignores anything else, but passing an unmasked passthrough document would be a leak
+        # waiting for a future renderer to find.
+        plan_document = None
+        if env("INPUT_INPUT_KIND", "terraform_plan") in ("terraform_plan", "terraform_state"):
+            try:
+                with open(input_path) as f:
+                    plan_document = json.load(f)
+            except (OSError, ValueError) as e:
+                # Not fatal: the evaluation is what matters, and it reads the same file itself.
+                warn(f"Could not read the masked document for the plan block: {e}")
+
         log(f"Evaluating {len(policies)} policy file(s) from '{policy_path}'")
         policy_results, errored = local.evaluate(
             policies,
@@ -570,7 +585,12 @@ def run_local(result_path, markdown_path, tag):
     write_text(
         markdown_path,
         report.render_markdown(
-            policy_results, "COMPLETED", None, marker=comment_marker(tag), commit=head_sha()
+            policy_results,
+            "COMPLETED",
+            None,
+            marker=comment_marker(tag),
+            commit=head_sha(),
+            plan=plan_document,
         ),
     )
 
