@@ -1109,7 +1109,37 @@ def test_the_comment_names_the_commit_it_scanned(tmp_path, stub):
     assert writes, "no comment was posted"
     body = writes[0][1]["body"]
     # The harness's event payload puts the PR head sha at 9f2c1ab...; short form is what git shows.
-    assert "<sub>Scanned commit <code>9f2c1ab</code></sub>" in body, body[:400]
+    # Asserted as a fragment, not a whole line: since py-tirith 1.2.1 the same <sub> also carries the
+    # source dir and the workflow id, so a reader of a matrix comment can tell which leg wrote it.
+    # What this test is about is the commit being named at all, not what else shares the line.
+    assert "Scanned commit <code>9f2c1ab</code>" in body, body[:400]
+    assert "<sub>Scanned commit" in body, body[:400]
+
+
+def test_the_comment_carries_the_plan_and_the_plan_is_masked(tmp_path, stub):
+    """
+    The planned changes render as a diff block above the findings, from the MASKED plan document.
+
+    Two properties, and the second is the one that matters: the block is built on the runner from the
+    document `redact_plan` already rewrote, never from `terraform show` output, so a value terraform
+    marked sensitive cannot reach a comment that anyone with repository access can read.
+
+    Asserted because nothing else here reads the block, and because it is rendered locally in *both*
+    modes -- platform findings come back from the server, but the diff does not. A CLI bump that
+    silently stopped emitting it, or started emitting the unmasked plan, would otherwise pass every
+    test in this file.
+    """
+    Stub.policy_results = {"p": [{"rule_name": "r", "result": "PASS", "evaluations": {"passes": []}}]}
+
+    run_action(tmp_path, stub)
+
+    writes = comment_writes()
+    assert writes, "no comment was posted"
+    body = writes[0][1]["body"]
+
+    assert "```diff" in body, body[:800]
+    assert "local_sensitive_file.secret" in body, body[:800]
+    assert SECRET not in body, "the plan block rendered the original plan, not the masked one"
 
 
 # --- ways a run that evaluated nothing could still look like a pass -------------------------------

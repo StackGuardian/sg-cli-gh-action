@@ -26,7 +26,7 @@ steps:
       terraform plan -out=tfplan -input=false
       terraform show -json tfplan > plan.json
 
-  - uses: StackGuardian/tirith-iac-governance-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2.1.0
 ```
 
 With `plan.json` in the working directory the action needs no `with:` block at all — it finds the
@@ -37,7 +37,7 @@ instead; that is the only difference between the two modes, and it is optional.
 Everything below is for when you want something other than the defaults:
 
 ```yaml
-  - uses: StackGuardian/tirith-iac-governance-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2.1.0
     with:
       sg-region: us            # eu (default) or us
       input-path: out/plan.json
@@ -70,7 +70,7 @@ comment, the same `Tirith IaC Governance` check run, the same outputs and exit c
 ```yaml
 steps:
   - run: terraform show -json tfplan > plan.json
-  - uses: StackGuardian/tirith-iac-governance-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2.1.0
 ```
 
 with a policy committed at `.tirith/policies/no-public-ingress.tirith.json`. `policy-path` also
@@ -119,7 +119,12 @@ to have a failure warn instead of block. Anything unrecognised there blocks.
 3. **Uploads** it and creates a StackGuardian workflow run, which evaluates the policies your
    organization has scoped to that workflow.
 4. **Reports** the verdict: a sticky pull-request comment, a `Tirith IaC Governance` check run, the job
-   summary, and action outputs.
+   summary, and action outputs. The comment leads with the planned changes as a `diff` block — one row
+   per changing resource, the attributes that move underneath it, and terraform's own summary line —
+   so a reviewer sees *what* is changing next to the rules that judged it. It is rendered from the
+   masked plan, never from `terraform show` output, because masking is the only thing keeping a
+   sensitive value out of a comment anyone with repository access can read. Unchanged resources are
+   counted rather than listed.
 
 With credentials, policies live in StackGuardian and are selected server-side by their `EnforcedOn`
 scope: there are no policy files in your repository and nothing is evaluated on the runner. Without
@@ -164,7 +169,7 @@ alongside them; that is what makes automated fixes and run reproduction possible
 `source-dir` defaults to the working directory. Point it at a subdirectory to send less:
 
 ```yaml
-- uses: StackGuardian/tirith-iac-governance-action@v2
+- uses: StackGuardian/tirith-iac-governance-action@v2.1.0
   with:
     source-dir: envs/prod
 ```
@@ -283,7 +288,7 @@ strategy:
   matrix:
     stack: [dev, prod]
 steps:
-  - uses: StackGuardian/tirith-iac-governance-action@v2
+  - uses: StackGuardian/tirith-iac-governance-action@v2.1.0
     with:
       sg-api-key: ${{ secrets.SG_API_TOKEN }}
       sg-org: ${{ vars.SG_ORG }}
@@ -305,6 +310,19 @@ arrives leaves the pull request blocked while gating nothing. Either require one
 leave `comment-tag` unset on the leg you gate on.
 
 ## Upgrading
+
+> **`@v2.1.0` adds the plan diff to the comment.** It installs py-tirith `1.2.1`, which renders the
+> planned changes above the findings table. That part applies in both modes, because the diff is
+> rendered on your runner from the plan you supplied.
+>
+> In **local mode** it also names the resource, action and attribute in each result message —
+> `[aws_s3_bucket.example (create)] acl: ...` rather than a bare comparison. **Platform mode findings
+> are unchanged**: they are produced by StackGuardian's evaluation step, which pins its own CLI, so
+> moving this action's pin cannot alter their text. They gain the richer wording when that step is
+> released.
+>
+> `@v2` is unchanged and still installs `1.2.0`; each tag pins one CLI, so nothing moves under a
+> pipeline that did not ask for it. Verdicts and exit codes are the same in both.
 
 > **The check run was renamed** to `Tirith IaC Governance` (it was `Tirith Policy`). If you made it a
 > **required status check** in branch protection, update the rule — a rule still naming `Tirith Policy`
