@@ -532,6 +532,12 @@ def run_local(result_path, markdown_path, tag):
         # Read only for the kinds that are masked and carry resource_changes; render_plan_block
         # ignores anything else, but passing an unmasked passthrough document would be a leak
         # waiting for a future renderer to find.
+        #
+        # `terraform_state` is included here and NOT in the GitLab component, which admits
+        # `terraform_plan` only. The two agree today because a state carries no resource_changes --
+        # but if render_plan_block ever learns to read one, this side starts rendering it with no
+        # change here to notice, while the component stays silent until someone widens it on
+        # purpose. Whoever teaches that function about state documents should look at both.
         plan_document = None
         if env("INPUT_INPUT_KIND", "terraform_plan") in ("terraform_plan", "terraform_state"):
             try:
