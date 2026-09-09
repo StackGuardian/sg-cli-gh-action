@@ -312,10 +312,17 @@ leave `comment-tag` unset on the leg you gate on.
 ## Upgrading
 
 > **`@v2.1.0` adds the plan diff to the comment.** It installs py-tirith `1.2.1`, which renders the
-> planned changes above the findings table and names the resource, action and attribute in every
-> result message — `[aws_s3_bucket.example (create)] acl: ...` rather than a bare comparison. `@v2`
-> is unchanged and still installs `1.2.0`; each tag pins one CLI, so nothing moves under a pipeline
-> that did not ask for it. Verdicts and exit codes are the same in both.
+> planned changes above the findings table. That part applies in both modes, because the diff is
+> rendered on your runner from the plan you supplied.
+>
+> In **local mode** it also names the resource, action and attribute in each result message —
+> `[aws_s3_bucket.example (create)] acl: ...` rather than a bare comparison. **Platform mode findings
+> are unchanged**: they are produced by StackGuardian's evaluation step, which pins its own CLI, so
+> moving this action's pin cannot alter their text. They gain the richer wording when that step is
+> released.
+>
+> `@v2` is unchanged and still installs `1.2.0`; each tag pins one CLI, so nothing moves under a
+> pipeline that did not ask for it. Verdicts and exit codes are the same in both.
 
 > **The check run was renamed** to `Tirith IaC Governance` (it was `Tirith Policy`). If you made it a
 > **required status check** in branch protection, update the rule — a rule still naming `Tirith Policy`
