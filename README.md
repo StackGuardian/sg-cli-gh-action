@@ -312,8 +312,9 @@ leave `comment-tag` unset on the leg you gate on.
 ## Upgrading
 
 > **`@v2.1.0` adds the plan diff to the comment.** It installs py-tirith `1.2.1`, which renders the
-> planned changes above the findings table. That part applies in both modes, because the diff is
-> rendered on your runner from the plan you supplied.
+> planned changes above the findings table, in both modes — the diff is rendered on your runner from
+> the plan you supplied, and from the masked copy of it, so a sensitive value cannot reach a comment
+> that anyone with repository access can read.
 >
 > In **local mode** it also names the resource, action and attribute in each result message —
 > `[aws_s3_bucket.example (create)] acl: ...` rather than a bare comparison. **Platform mode findings
