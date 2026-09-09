@@ -345,7 +345,28 @@ def evaluate(policy_paths, input_path, on_unknown_enforcement=lambda _: None):
             policy_id, rule_name = _identity(document, policy_path)
             final = document.get("final_result")
             if final is None:
-                rule = {"rule_name": rule_name, "skip": True}
+                # Every check was skipped, so this policy examined the change and reported on none
+                # of it. `final_result` is tri-state and the CLI is explicit about this one: None
+                # exits 1, because "None is not a pass".
+                #
+                # Reported as a tool failure, not as a skipped rule. `skip` is the representation
+                # for a rule an author deliberately turned off, and report.summarize counts it
+                # toward a `passed` verdict -- so mapping "nothing ran" onto it produced a green
+                # check on a change nothing was evaluated against, which is the one outcome this
+                # mode exists to prevent. It needed a deliberate error_tolerance to reach, which
+                # narrowed the blast radius without making it acceptable: tolerating missing data
+                # is exactly what someone does when running one policy set across repositories
+                # where not every resource type appears.
+                reason = (
+                    "nothing was evaluated: every check was skipped, which happens when "
+                    "error_tolerance absorbs a provider that found no value"
+                )
+                rule = {
+                    "rule_name": rule_name,
+                    "result": report.FAIL,
+                    "evaluations": {"fails": [{"exec_err": f"{policy_path}: {reason}"}]},
+                }
+                errored.append((policy_path, reason))
             elif final:
                 rule = {"rule_name": rule_name, "result": report.PASS}
             else:
