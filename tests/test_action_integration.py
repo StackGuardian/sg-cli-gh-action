@@ -704,6 +704,60 @@ def read_outputs(path):
     return values
 
 
+EVALUATES_NOTHING = {
+    "meta": {
+        "version": "v1",
+        "id": "absent-type",
+        "name": "RDS clusters must run aurora",
+        "required_provider": "stackguardian/terraform_plan",
+    },
+    "eval_expression": "engine",
+    "evaluators": [
+        {
+            "id": "engine",
+            "description": "RDS clusters must run aurora",
+            "provider_args": {
+                "operation_type": "attribute",
+                "terraform_resource_type": "aws_rds_cluster",
+                "terraform_resource_attribute": "engine",
+            },
+            # The error_tolerance is what makes this reachable. At the default of 0 an absent
+            # resource type FAILS; raise it and the provider's "not found" is absorbed, every check
+            # is skipped, and the policy reports no verdict at all.
+            "condition": {"type": "Equals", "value": "aurora", "error_tolerance": 5},
+        }
+    ],
+}
+
+
+def test_a_policy_that_evaluated_nothing_is_not_a_pass(tmp_path):
+    """
+    `final_result: None` means every check was skipped, so the policy reported on none of the change.
+
+    This mapped onto the skipped-rule representation, which report.summarize counts toward a
+    `passed` verdict -- so a job went GREEN with fail-on-error set, having evaluated nothing. The
+    raw CLI exits 1 for the same document and says why: "None is not a pass."
+
+    `skip` is for a rule an author turned off. "Nothing ran" is a tool failure, and it fails the job
+    regardless of fail-on-error, exactly like a policy that could not be parsed.
+    """
+    completed, outputs, scratch = run_local(
+        tmp_path,
+        policies=(("absent.tirith.json", EVALUATES_NOTHING),),
+        INPUT_FAIL_ON_ERROR="true",
+    )
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert outputs.get("verdict") == "failed", outputs
+
+    result = json.loads(next(iter(scratch.glob("tirith-result-*.json"))).read_text())
+    assert result["counts"]["skipped"] == 0, result["counts"]
+    assert result["policies_errored"] == 1, result
+
+    markdown = next(iter(scratch.glob("tirith-comment-*.md"))).read_text()
+    assert "nothing was evaluated" in markdown, markdown[:600]
+
+
 def test_local_mode_renders_the_plan_block_from_the_masked_document(tmp_path):
     """
     Local mode shows the planned changes too, and shows the masked copy.

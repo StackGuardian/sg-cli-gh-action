@@ -101,9 +101,12 @@ what keeps a `sensitive` value out of GitHub. It also means a local verdict matc
 for the same plan, because the platform evaluates the masked document too.
 
 Two limits worth knowing: one policy file is one rule, so `meta.id` and `meta.name` are what appear
-in the comment; and a policy that cannot be evaluated — unparseable, or with unresolved variables —
+in the comment; and a policy that cannot be evaluated — unparseable, with unresolved variables, or
+one that **evaluated nothing** because `error_tolerance` absorbed a provider that found no value —
 fails the job regardless of `fail-on-error`, because "could not evaluate" is a tool failure rather
-than a policy decision. Mark a policy advisory with `"enforcement": "soft_mandatory"` in its `meta`
+than a policy decision. That last case is worth stating plainly: a policy naming a resource type your
+plan does not contain checked none of your change, and a green check for that is worse than a red
+one. Mark a policy advisory with `"enforcement": "soft_mandatory"` in its `meta`
 to have a failure warn instead of block. Anything unrecognised there blocks.
 
 ## What it does
